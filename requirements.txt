@@ -1,0 +1,8 @@
+torch
+torchvision
+tensorboard
+numpy
+matplotlib
+scikit-learn
+Pillow
+opencv-python-headless
