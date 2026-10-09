@@ -8,3 +8,6 @@ Pillow
 opencv-python-headless
 pyyaml
 mlflow
+fastapi
+uvicorn
+python-multipart

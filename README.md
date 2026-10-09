@@ -4,7 +4,7 @@ An image classifier that identifies plant leaf diseases from photographs, built 
 
 **Test accuracy: 95.18%** (0.9517607332368548). Validation accuracy stabilised at roughly 95-96% during training.
 
-> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point** and **MLflow experiment tracking**, a **formal evaluation with a quality gate**, and an **MLflow model registry** with a champion alias (see [ML mini-platform](#ml-mini-platform-in-progress)). An inference API, containerisation, CI and monitoring are not implemented yet. See [Roadmap](#roadmap).
+> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion (see [ML mini-platform](#ml-mini-platform-in-progress)). Containerisation, CI and monitoring are not implemented yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -119,6 +119,14 @@ evaluation/
   evaluate.py          # evaluate a checkpoint on the test split, apply the quality gate
   metrics.py           # accuracy, precision, recall, F1, per-class metrics, confusion matrix
   gate.py              # quality gate
+serving/
+  app.py               # FastAPI app: /health, /ready, /model, /predict, /reload
+  service.py           # the prediction logic (framework-free)
+  images.py            # upload validation and preprocessing
+  model_store.py       # loads the champion through the registry alias
+  settings.py          # environment-variable settings
+  errors.py            # API error type
+  check_parity.py      # checks serving preprocessing against the training transform
 registry/
   cli.py               # python -m registry register | promote | show | check
   ops.py               # register, promote, list, load the champion (MLflow)
@@ -153,7 +161,7 @@ Developed on Python 3.13 (VS Code). Training takes about 1 hour on an Nvidia GPU
 
 ```bash
 # 1. Install dependencies (torch, torchvision, tensorboard, numpy, matplotlib,
-#    scikit-learn, Pillow, opencv-python-headless, pyyaml, mlflow)
+#    scikit-learn, Pillow, opencv-python-headless, pyyaml, mlflow, fastapi, uvicorn, python-multipart)
 pip install -r requirements.txt
 
 # 2. Put the dataset class folders in dataset/raw/
@@ -318,13 +326,61 @@ python -m registry promote --version 2                         # champion -> ver
 
 `python -m registry check` loads the model through the alias only, so it also shows that a service can serve the champion without knowing any file path.
 
-**How it was checked:** the registration rules and operations were run against a stand-in in-memory registry: refusals (no evaluation, failed gate, evaluation of a different file, wrong split), registration with metadata, the first version becoming the champion, registering the same checkpoint twice (no duplicate), registering a second model without changing the champion, promotion (and the recorded previous champion), refusing to promote a version without a passed gate or an unknown version, and the version listing. **`[CONFIRM: first registration of best_model.pth with real MLflow, python -m registry show, and python -m registry check]`**
+**How it was checked:** the registration rules and operations were run against a stand-in in-memory registry: refusals (no evaluation, failed gate, evaluation of a different file, wrong split), registration with metadata, the first version becoming the champion, registering the same checkpoint twice (no duplicate), registering a second model without changing the champion, promotion (and the recorded previous champion), refusing to promote a version without a passed gate or an unknown version, and the version listing. On the real setup, `best_model.pth` was registered as version 1 and became the champion; `python -m registry show` listed it with test accuracy 0.9518, macro F1 0.9534 and the gate passed; and `python -m registry check` loaded the champion through the alias and returned a `(1, 15)` probability vector that sums to 1. MLflow prints warnings about missing type hints and an input example when packaging and loading; they are harmless.
+
+### Phase 5: inference API (implemented)
+
+**Why:** the registry says which model is the champion; the service is what actually answers requests with it, without being rewritten when the champion changes.
+
+`serving/app.py` is a FastAPI service. At startup it asks the registry which version `models:/plant-disease-classifier@champion` points to and loads that version; no model file path is configured anywhere. If the model cannot be loaded the service still starts, `/ready` reports 503 and `/predict` refuses.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | liveness: the process is up |
+| `GET /ready` | readiness: 200 only when the champion is loaded, otherwise 503 |
+| `GET /model` | served model name, alias and version, number of classes and their names, input contract, and the version's tags (test accuracy, macro F1, gate outcome, dataset fingerprint, git commit) |
+| `POST /predict` | multipart upload, field `file`: returns `prediction`, `confidence`, `top_k`, the model `name`/`alias`/`version`, `latency_ms` (preprocess, inference, total) and a `request_id` |
+| `POST /reload` | re-resolves the champion alias and loads it, so a promotion takes effect without a restart. Only exists when `ADMIN_TOKEN` is set, and then needs the header `X-Admin-Token`. A failed reload keeps the current model serving |
+| `GET /docs` | interactive API documentation (generated by FastAPI) |
+
+**Preprocessing** is the same as in training: RGB, bilinear resize to 224 x 224, values scaled to [0, 1], no normalisation. `python -m serving.check_parity` compares the service's preprocessing with the training transform on test images.
+
+**Errors** are always JSON, `{"error": {"code", "message", "request_id"}}`, and never contain stack traces or internal paths (those are logged on the server):
+
+| Situation | Status | Code |
+|---|---|---|
+| no `file` field, or body is not multipart | 422 | `malformed_request` |
+| empty file | 400 | `empty_file` |
+| not an image, or not JPEG/PNG | 415 | `unsupported_media_type` |
+| corrupted or truncated image | 422 | `image_corrupted` |
+| image side shorter than 32 px | 422 | `image_too_small` |
+| upload over 5 MB (`MAX_UPLOAD_BYTES`) | 413 | `file_too_large` |
+| more than 25 million pixels (`MAX_PIXELS`) | 413 | `image_too_large` |
+| model not loaded | 503 | `model_unavailable` |
+| failure inside prediction | 500 | `inference_failed` |
+| unknown path or wrong method | 404 / 405 | `not_found` / `method_not_allowed` |
+
+Settings come from environment variables: `MLFLOW_TRACKING_URI` (default `sqlite:///mlflow.db`), `MODEL_NAME`, `MODEL_ALIAS`, `MAX_UPLOAD_BYTES`, `MAX_PIXELS`, `MIN_SIDE`, `TOP_K`, `ADMIN_TOKEN`.
+
+```powershell
+uvicorn serving.app:app --port 8000          # run from the repo root (the registry database is a relative path)
+
+curl.exe http://localhost:8000/ready
+curl.exe http://localhost:8000/model
+curl.exe -F "file=@dataset/test/Tomato_healthy/<an image>.JPG" http://localhost:8000/predict
+
+# after promoting a new champion (the server started with $env:ADMIN_TOKEN="<token>"):
+curl.exe -X POST -H "X-Admin-Token: <token>" http://localhost:8000/reload
+```
+
+**Limitations.** The model has 15 classes and always answers with one of them: a photo that is not a leaf of these three crops still gets a prediction, and `confidence` is a softmax probability, not a calibrated certainty. Predictions are processed one at a time per process. Structured request logging and the `/metrics` endpoint are not implemented yet (Phase 8); packaging in a container is Phase 6.
+
+**How it was checked:** everything below the web layer was run directly: upload validation on valid JPEG/PNG (including RGBA, grayscale and palette images) and on empty, random, text, GIF, BMP, truncated, corrupted, tiny and oversized inputs; preprocessing shape, dtype and range; the model store with a stand-in loader (loading, a failed reload keeping the old model, a crash inside the model returning a generic 500, no model loaded returning 503); and response building. The FastAPI routes themselves, and loading the real champion in the service, have not been run yet. **`[CONFIRM: start the service, call /ready, /model and /predict with a real image, try the error cases, run python -m serving.check_parity, and try /reload after a promotion]`**
 
 ## Roadmap
 
-Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), and the model registry (Phase 4). The following are **planned and not yet implemented**:
+Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), and the inference API (Phase 5). The following are **planned and not yet implemented**:
 
-- Inference API (FastAPI)
 - Docker packaging
 - Automated tests and CI
 - Inference monitoring
