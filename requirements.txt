@@ -6,3 +6,5 @@ matplotlib
 scikit-learn
 Pillow
 opencv-python-headless
+pyyaml
+mlflow

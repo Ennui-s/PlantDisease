@@ -1,0 +1,11 @@
+# Experiment: larger batch size. Everything else is inherited from configs/training.yaml.
+#   python -m training.train --config configs/experiments/batch_64.yaml
+base: configs/training.yaml
+
+config_overrides:
+  batch_size: 64
+  model_path: checkpoints/batch_64.pth
+  log_dir: logs/batch_64
+
+tracking:
+  run_name: batch-64

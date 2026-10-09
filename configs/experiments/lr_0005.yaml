@@ -1,0 +1,11 @@
+# Experiment: lower learning rate. Everything else is inherited from configs/training.yaml.
+#   python -m training.train --config configs/experiments/lr_0005.yaml
+base: configs/training.yaml
+
+config_overrides:
+  learning_rate: 0.0005
+  model_path: checkpoints/lr_0005.pth
+  log_dir: logs/lr_0005
+
+tracking:
+  run_name: lr-0.0005

@@ -1,0 +1,37 @@
+# Run configuration for the ML mini-platform. Defaults for the classifier itself live in
+# config.py; anything under config_overrides replaces the matching CONFIG value for this run.
+# An empty config_overrides reproduces the original training run.
+#
+# Other files can extend this one with `base: configs/training.yaml` and override only
+# what differs (see configs/smoke_test.yaml and configs/experiments/).
+
+seed: null            # set an integer to seed torch for this run (default: unseeded, as originally)
+run_validation: true  # validate the train/val/test splits before training starts
+
+config_overrides: {}
+# Example:
+# config_overrides:
+#   epochs: 5
+#   learning_rate: 0.0005
+
+validation:
+  extensions: [".jpg", ".jpeg", ".png"]
+  min_side: 32
+  min_images_per_class: 10
+  max_imbalance_ratio: 30
+  split_ratio_tolerance: 0.02
+  full_decode: true
+  workers: 4
+  duplicates_within_dataset: warning   # error | warning
+  cross_split_duplicates: error        # error | warning
+  # The current split has 5 byte-identical images shared between train and val/test (found by
+  # the first validation run; all in Tomato_Late_blight). That known state is accepted so the
+  # existing split can be reused; any additional leakage still fails the gate.
+  accepted_cross_split_duplicate_groups: 5
+  baseline_path: configs/data_baseline.json
+
+tracking:
+  enabled: true
+  tracking_uri: sqlite:///mlflow.db        # local database; view with: mlflow ui --backend-store-uri sqlite:///mlflow.db
+  experiment_name: plant-disease-classifier
+  run_name: null                           # default: MLflow generates one; or pass --run-name

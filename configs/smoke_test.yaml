@@ -1,0 +1,16 @@
+# Short run to check the platform's training entry point end to end without touching
+# best_model.pth or the existing TensorBoard logs. Tracked in a separate MLflow experiment.
+#   python -m training.train --config configs/smoke_test.yaml
+
+base: configs/training.yaml
+
+seed: 0
+
+config_overrides:
+  epochs: 1
+  model_path: checkpoints/smoke_test.pth
+  log_dir: logs/smoke_test
+
+tracking:
+  experiment_name: plant-disease-smoke-test
+  run_name: smoke-test

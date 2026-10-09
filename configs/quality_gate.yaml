@@ -1,0 +1,18 @@
+# Quality gate for candidate models. A candidate passes only if it is not worse than the reference
+# (the existing classifier, evaluated by this platform) by more than the margins below.
+#
+# The reference is created once, from the original model:
+#   python -m evaluation.evaluate --model best_model.pth --write-reference
+#
+# Why these margins (derived from the project's own test set, not picked arbitrarily):
+#  - Accuracy / macro F1: the test set has 2,073 images and the reference accuracy is ~0.952, so the
+#    95% sampling noise on accuracy is 1.96 * sqrt(0.952 * 0.048 / 2073) = ~0.009. A drop up to 0.01
+#    cannot be told apart from noise, so rejecting a candidate for a smaller drop would be arbitrary.
+#  - Per-class recall: the smallest test class (Potato___healthy) has 16 images, so one image moves
+#    its recall by 0.0625. A margin below that would fail a candidate over a single image; 0.10 allows
+#    one or two images in the smallest class while still catching a class that has really degraded.
+
+reference_metrics: configs/reference_metrics.json
+max_accuracy_drop: 0.01
+max_macro_f1_drop: 0.01
+max_class_recall_drop: 0.10

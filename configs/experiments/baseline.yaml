@@ -1,0 +1,11 @@
+# The original configuration (config.py defaults), tracked, with a separate checkpoint so that
+# best_model.pth (the recorded 95.18% model) is not overwritten.
+#   python -m training.train --config configs/experiments/baseline.yaml
+base: configs/training.yaml
+
+config_overrides:
+  model_path: checkpoints/baseline.pth
+  log_dir: logs/baseline
+
+tracking:
+  run_name: baseline

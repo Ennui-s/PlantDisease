@@ -8,3 +8,8 @@ readme.txt
 dataset/
 outputs/
 summary.ipynb
+reports/
+mlflow.db
+mlruns/
+checkpoints/
+reports/
