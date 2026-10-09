@@ -24,7 +24,7 @@ from models.model import PlantDiseaseModel
 from utils.visualization import generate_confusion_matrix, save_gradcam_image
 from evaluation.gate import evaluate_gate, format_gate, load_gate_config
 from evaluation.metrics import compute_metrics
-from tracking.tracker import RunTracker, tracking_cfg
+from tracking.tracker import RunTracker, tracking_cfg, training_run_id
 from training.run_config import apply_overrides, load_run_config
 
 
@@ -87,16 +87,6 @@ def run_evaluation(model_path, output_dir, n_gradcam=3) -> dict:
     return metrics
 
 
-def _training_run_id(model_path, report_dir="reports"):
-    """Run id of the training run that wrote this checkpoint, if reports/training_run.json says so."""
-    p = Path(report_dir) / "training_run.json"
-    if not p.is_file():
-        return None
-    summary = json.loads(p.read_text())
-    same = Path(summary.get("model_path", "")).resolve() == Path(model_path).resolve()
-    return (summary.get("tracking") or {}).get("run_id") if same else None
-
-
 def _log_to_mlflow(tracker, metrics, gate, out_dir):
     logged = {f"test_{k}": metrics[k] for k in
               ("accuracy", "macro_precision", "macro_recall", "macro_f1", "weighted_f1")}
@@ -148,14 +138,16 @@ def main(argv=None) -> int:
             print(f"No reference metrics at {ref_path}. Create them from the original model with "
                   "--write-reference, or skip the gate with --no-gate.")
             return 2
-        gate = evaluate_gate(metrics, json.loads(ref_path.read_text()), gate_cfg)
+        reference = json.loads(ref_path.read_text())
+        gate = evaluate_gate(metrics, reference, gate_cfg)
+        gate["reference_model_sha256"] = reference.get("model_sha256")
         (Path(out_dir) / "gate.json").write_text(json.dumps(gate, indent=2))
         print(format_gate(gate))
 
     track_cfg = tracking_cfg(run_cfg)
     if args.no_tracking:
         track_cfg["enabled"] = False
-    run_id = args.run_id or _training_run_id(args.model)
+    run_id = args.run_id or training_run_id(args.model)
     name = None if run_id else f"evaluate-{Path(args.model).stem}"
     with RunTracker(track_cfg, run_name=name, resume_run_id=run_id) as tracker:
         _log_to_mlflow(tracker, metrics, gate, out_dir)

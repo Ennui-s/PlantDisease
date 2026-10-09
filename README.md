@@ -4,7 +4,7 @@ An image classifier that identifies plant leaf diseases from photographs, built 
 
 **Test accuracy: 95.18%** (0.9517607332368548). Validation accuracy stabilised at roughly 95-96% during training.
 
-> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point** and **MLflow experiment tracking**, and a **formal evaluation with a quality gate** (see [ML mini-platform](#ml-mini-platform-in-progress)). A model registry, an inference API, containerisation, CI and monitoring are not implemented yet. See [Roadmap](#roadmap).
+> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point** and **MLflow experiment tracking**, a **formal evaluation with a quality gate**, and an **MLflow model registry** with a champion alias (see [ML mini-platform](#ml-mini-platform-in-progress)). An inference API, containerisation, CI and monitoring are not implemented yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -119,6 +119,11 @@ evaluation/
   evaluate.py          # evaluate a checkpoint on the test split, apply the quality gate
   metrics.py           # accuracy, precision, recall, F1, per-class metrics, confusion matrix
   gate.py              # quality gate
+registry/
+  cli.py               # python -m registry register | promote | show | check
+  ops.py               # register, promote, list, load the champion (MLflow)
+  policy.py            # rules: what may be registered or promoted, version metadata
+  pyfunc_model.py      # the classifier packaged as an MLflow model
 tracking/
   tracker.py           # MLflow wrapper (no-op when tracking is disabled)
 training/
@@ -287,13 +292,38 @@ python -m evaluation.evaluate --model checkpoints/lr_0005.pth            # evalu
 
 The command exits with status 1 when the gate fails and records `quality_gate: passed|failed` on the MLflow run. Registering passing candidates is Phase 4; comparing a candidate with the current champion comes with retraining.
 
-**How it was checked:** the metric calculations were compared with a hand-computed example; the gate was run on constructed cases (identical, within noise, accuracy or F1 drop, one image lost in the smallest class, a collapsed class, a different class set); and the command was run end to end against stand-ins for torch and MLflow (no reference, writing the reference, a passing candidate, a failing candidate, attaching to a training run or creating a standalone run). **`[CONFIRM: reference metrics of the original model, and the gate result for a real candidate, for example checkpoints/baseline.pth or the smoke-test checkpoint]`**
+**How it was checked:** the metric calculations were compared with a hand-computed example; the gate was run on constructed cases (identical, within noise, accuracy or F1 drop, one image lost in the smallest class, a collapsed class, a different class set); and the command was run end to end against stand-ins for torch and MLflow (no reference, writing the reference, a passing candidate, a failing candidate, attaching to a training run or creating a standalone run). The reference run on the original checkpoint (`best_model.pth`, CPU) reproduced the recorded test accuracy of 0.9517607332368548 exactly, with macro F1 0.9534 and macro precision/recall 0.9552/0.9523; the weakest classes are `Tomato_Early_blight` (recall 0.832), `Tomato_Septoria_leaf_spot` (0.882) and `Tomato__Target_Spot` (0.894). Applied to the 1-epoch smoke-test checkpoint, the gate **failed** it (accuracy 0.9059 vs 0.9518, macro F1 0.8949 vs 0.9534, and recall drops in `Tomato_Early_blight` 0.832 -> 0.535 and `Tomato__Tomato_mosaic_virus` 1.000 -> 0.684), as expected for a model trained for one epoch.
+
+### Phase 4: model registry (implemented)
+
+**Why:** a trained file in a folder has no identity, history or status. The registry gives each accepted model a version, records where it came from and how it scored, and lets a service ask for "the champion" instead of a file name.
+
+The registry is the MLflow Model Registry in the same local database as the experiment tracking (`mlflow.db`); the registered model is named `plant-disease-classifier`. Versions are labelled with the **`champion` alias** (not the deprecated Staging/Production stages).
+
+- **Only gate-passed models are registered.** `register` refuses a checkpoint unless `reports/evaluation/<name>/` holds an evaluation on the test split, of exactly that file (hash match), that passed the quality gate.
+- **What a version contains:** the weights, the class names in output order, the model code, a model signature (input `float32 (N, 3, 224, 224)` in [0, 1], i.e. resize + ToTensor with no normalisation; output `(N, 15)` softmax probabilities) and pinned `torch`/`torchvision` versions. It builds without downloading ImageNet weights.
+- **Version metadata (tags):** checkpoint hash and path, training run id, quality gate outcome, hash of the reference model it was gated against, test accuracy and macro F1, dataset fingerprint, git commit.
+- **Champion rules:** the first registered version becomes the champion (there is nothing to compare it with). Later versions are registered but do **not** change the champion; `promote` does that explicitly, and only for versions tagged `quality_gate=passed`. Comparing a new candidate with the current champion automatically comes with retraining.
+
+```bash
+python -m evaluation.evaluate --model best_model.pth     # gate against the reference; the original model passes by definition
+python -m registry register --model best_model.pth       # version 1, becomes the champion
+python -m registry show                                  # versions, aliases, test metrics, gate outcome
+python -m registry check                                 # load models:/plant-disease-classifier@champion and run a prediction
+
+# later: a candidate that passed the gate
+python -m registry register --model checkpoints/lr_0005.pth    # version 2, champion unchanged
+python -m registry promote --version 2                         # champion -> version 2
+```
+
+`python -m registry check` loads the model through the alias only, so it also shows that a service can serve the champion without knowing any file path.
+
+**How it was checked:** the registration rules and operations were run against a stand-in in-memory registry: refusals (no evaluation, failed gate, evaluation of a different file, wrong split), registration with metadata, the first version becoming the champion, registering the same checkpoint twice (no duplicate), registering a second model without changing the champion, promotion (and the recorded previous champion), refusing to promote a version without a passed gate or an unknown version, and the version listing. **`[CONFIRM: first registration of best_model.pth with real MLflow, python -m registry show, and python -m registry check]`**
 
 ## Roadmap
 
-Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), and formal evaluation with a quality gate (Phase 3). The following are **planned and not yet implemented**:
+Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), and the model registry (Phase 4). The following are **planned and not yet implemented**:
 
-- Model versioning with a model registry
 - Inference API (FastAPI)
 - Docker packaging
 - Automated tests and CI

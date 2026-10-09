@@ -35,3 +35,7 @@ tracking:
   tracking_uri: sqlite:///mlflow.db        # local database; view with: mlflow ui --backend-store-uri sqlite:///mlflow.db
   experiment_name: plant-disease-classifier
   run_name: null                           # default: MLflow generates one; or pass --run-name
+
+registry:
+  model_name: plant-disease-classifier
+  champion_alias: champion

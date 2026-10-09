@@ -16,7 +16,7 @@ import yaml
 from config import CONFIG
 
 DEFAULT_CONFIG_PATH = "configs/training.yaml"
-SECTIONS = ("config_overrides", "validation", "tracking")
+SECTIONS = ("config_overrides", "validation", "tracking", "registry")
 RUN_DEFAULTS = {
     "base": None,               # optional path to a YAML file this one extends
     "seed": None,               # optional torch seed; None keeps the original (unseeded) behaviour
@@ -24,6 +24,7 @@ RUN_DEFAULTS = {
     "config_overrides": {},     # keys must already exist in config.py CONFIG
     "validation": {},           # thresholds, see validation/checks.py DEFAULTS
     "tracking": {},             # MLflow settings, see tracking/tracker.py TRACKING_DEFAULTS
+    "registry": {},             # model registry settings, see registry/policy.py REGISTRY_DEFAULTS
 }
 
 

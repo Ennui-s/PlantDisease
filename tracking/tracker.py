@@ -5,6 +5,7 @@ so the training loop is identical either way and does not import MLflow.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,16 @@ def git_info():
         return commit, bool(changes)
     except Exception:
         return None, None
+
+
+def training_run_id(model_path, report_dir="reports") -> Optional[str]:
+    """MLflow run id of the training run that wrote this checkpoint, if reports/training_run.json says so."""
+    p = Path(report_dir) / "training_run.json"
+    if not p.is_file():
+        return None
+    summary = json.loads(p.read_text())
+    same = Path(summary.get("model_path", "")).resolve() == Path(model_path).resolve()
+    return (summary.get("tracking") or {}).get("run_id") if same else None
 
 
 class RunTracker:
@@ -86,6 +97,10 @@ class RunTracker:
     def log_metrics(self, metrics: dict, step: Optional[int] = None) -> None:
         if self._mlflow is not None:
             self._mlflow.log_metrics(metrics, step=step)
+
+    def log_artifacts(self, directory, artifact_path: Optional[str] = None) -> None:
+        if self._mlflow is not None:
+            self._mlflow.log_artifacts(str(directory), artifact_path)
 
     def log_artifact(self, path, artifact_path: Optional[str] = None) -> None:
         if self._mlflow is not None and path is not None and Path(path).is_file():
