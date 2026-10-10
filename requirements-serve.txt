@@ -1,0 +1,7 @@
+# Dependencies of the inference container (torch and torchvision are installed first, CPU-only, in the Dockerfile)
+numpy
+Pillow
+mlflow
+fastapi
+uvicorn
+python-multipart

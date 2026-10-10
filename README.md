@@ -4,7 +4,7 @@ An image classifier that identifies plant leaf diseases from photographs, built 
 
 **Test accuracy: 95.18%** (0.9517607332368548). Validation accuracy stabilised at roughly 95-96% during training.
 
-> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion (see [ML mini-platform](#ml-mini-platform-in-progress)). Containerisation, CI and monitoring are not implemented yet. See [Roadmap](#roadmap).
+> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion, packaged as a **Docker image**, with an automated **test suite and GitHub Actions CI** (see [ML mini-platform](#ml-mini-platform-in-progress)). Monitoring and retraining are not implemented yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -119,6 +119,13 @@ evaluation/
   evaluate.py          # evaluate a checkpoint on the test split, apply the quality gate
   metrics.py           # accuracy, precision, recall, F1, per-class metrics, confusion matrix
   gate.py              # quality gate
+tests/                   # pytest suite (unit, API and integration tests)
+pytest.ini, ruff.toml, requirements-test.txt   # test and lint configuration
+.github/workflows/ci.yml # GitHub Actions: lint, tests, Docker build and smoke test
+Dockerfile               # inference image (CPU-only torch, bundled champion model)
+requirements-serve.txt   # dependencies of the inference image
+.dockerignore            # allow-list of what goes into the image
+model_export/            # exported champion model baked into the image (python -m registry export); commit it
 serving/
   app.py               # FastAPI app: /health, /ready, /model, /predict, /reload
   service.py           # the prediction logic (framework-free)
@@ -375,14 +382,57 @@ curl.exe -X POST -H "X-Admin-Token: <token>" http://localhost:8000/reload
 
 **Limitations.** The model has 15 classes and always answers with one of them: a photo that is not a leaf of these three crops still gets a prediction, and `confidence` is a softmax probability, not a calibrated certainty. Predictions are processed one at a time per process. Structured request logging and the `/metrics` endpoint are not implemented yet (Phase 8); packaging in a container is Phase 6.
 
-**How it was checked:** everything below the web layer was run directly: upload validation on valid JPEG/PNG (including RGBA, grayscale and palette images) and on empty, random, text, GIF, BMP, truncated, corrupted, tiny and oversized inputs; preprocessing shape, dtype and range; the model store with a stand-in loader (loading, a failed reload keeping the old model, a crash inside the model returning a generic 500, no model loaded returning 503); and response building. The FastAPI routes themselves, and loading the real champion in the service, have not been run yet. **`[CONFIRM: start the service, call /ready, /model and /predict with a real image, try the error cases, run python -m serving.check_parity, and try /reload after a promotion]`**
+**How it was checked:** everything below the web layer was run directly: upload validation on valid JPEG/PNG (including RGBA, grayscale and palette images) and on empty, random, text, GIF, BMP, truncated, corrupted, tiny and oversized inputs; preprocessing shape, dtype and range; the model store with a stand-in loader (loading, a failed reload keeping the old model, a crash inside the model returning a generic 500, no model loaded returning 503); and response building. The service was then started against the real champion on the real setup and served predictions. **`[CONFIRM: output of python -m serving.check_parity, the error-case responses, and /reload after a promotion]`**
+
+### Phase 6: Docker (implemented)
+
+**Why:** `clone -> build -> run -> send an image -> get a prediction`, on any machine with Docker, without Python, MLflow databases or model files to set up.
+
+The image (`Dockerfile`) contains only the inference service, the model code the packaged model imports, and **a copy of the current champion** in `model_export/`. It therefore needs no registry database, no mounted volume and no secrets (the registry database holds machine-specific artifact paths, so it is deliberately not used inside the container). It uses CPU-only PyTorch, runs as a non-root user, and has a healthcheck on `/ready`. The `.dockerignore` is an allow-list, so the dataset, checkpoints, reports and registry files never enter the image.
+
+```powershell
+python -m registry export                      # copy the champion into model_export/ (commit the folder)
+docker build -t plant-disease-api .
+docker run --rm -p 8000:8000 plant-disease-api
+
+curl.exe http://localhost:8000/ready
+curl.exe http://localhost:8000/model           # shows the champion version baked into the image
+curl.exe -F "file=@<an image>.JPG" http://localhost:8000/predict
+```
+
+When a new champion is promoted, run `python -m registry export` again and rebuild the image; the version it serves is reported by `/model`. To serve straight from the registry instead (outside Docker), do not set `MODEL_DIR`. `/reload` (when `ADMIN_TOKEN` is set at run time with `-e ADMIN_TOKEN=...`) re-reads the model folder.
+
+**How it was checked:** the export and the folder loader were run against a stand-in registry (export contents and metadata, loading from the folder, prediction through the service, no champion giving a clear error). The image was then built and run on the real setup without changes, and `/predict` through it returned `Potato___healthy` (confidence 0.99942, model version 1) for a test image, with about 136 ms of CPU inference time.
+
+### Phase 7: tests and CI (implemented)
+
+**Why:** the platform is software around a model, so it is tested like software: the rules (validation, gate, registry, config) are unit-tested, the API is tested through HTTP, and the real exported model is tested end to end.
+
+```bash
+pip install -r requirements-test.txt     # after installing torch and torchvision
+python -m pytest -q
+ruff check validation tracking evaluation registry serving training/train.py training/prepare.py training/run_config.py tests
+```
+
+| Level | File | Covers |
+|---|---|---|
+| Unit | `test_validation.py` | corrupted/truncated/empty files, formats, tiny images, empty classes, duplicates, label conflicts, leakage and the accepted limit, split consistency, class distribution, class baseline, dataset fingerprint |
+| Unit | `test_evaluation.py` | metrics against a hand-computed example; the quality gate on identical, within-noise, accuracy drop, F1 drop, one image lost in the smallest class, a collapsed class, an improved model and a different class set; gate config validation |
+| Unit | `test_config_and_registry_policy.py` | config inheritance, unknown keys, circular `base`, overrides, all repository configs load; registration preconditions (hash, split, gate), version tags, promotion rule |
+| Unit | `test_serving_logic.py` | upload validation, preprocessing (shape, range, channel order, determinism), response formatting, model store (failed reload keeps the old model), prediction errors, settings |
+| API | `test_api.py` | `/health`, `/ready`, `/model`, `/predict` with valid JPEG/PNG, invalid, corrupted, empty, tiny, oversized and missing files, malformed requests, unknown routes, model unavailable, model failure, `/reload` protection, request ids, no internals in errors |
+| Integration | `test_integration.py` | the real exported champion loads and predicts; the service's preprocessing equals the training transform; the real model through the API; promotion, listing and export against a real temporary MLflow registry |
+
+The integration tests are skipped automatically if torch, MLflow or `model_export/` are missing.
+
+**CI** (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests: install CPU-only PyTorch and the test dependencies, lint (syntax errors, undefined names, unused imports), run the tests, then build the Docker image, start it, wait for `/ready`, send a generated image to `/predict` and check that a non-image upload gets a 415. Nothing is trained in CI, and CI needs the committed `model_export/` folder.
+
+**How it was checked:** the unit tests that do not need FastAPI, torch or MLflow (43 test cases) were run, and they were checked against deliberately introduced bugs (a gate that lets any drop through, a wrong preprocessing scale, leakage that never fails, a removed hash check, NaN output accepted, circular configs not detected), all of which made tests fail. **`[CONFIRM: python -m pytest -q on the real setup (API and integration tests included), and the first run of the GitHub Actions workflow]`**
 
 ## Roadmap
 
-Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), and the inference API (Phase 5). The following are **planned and not yet implemented**:
+Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), the inference API (Phase 5), Docker packaging (Phase 6), and tests with CI (Phase 7). The following are **planned and not yet implemented**:
 
-- Docker packaging
-- Automated tests and CI
 - Inference monitoring
 - Retraining and model promotion
 

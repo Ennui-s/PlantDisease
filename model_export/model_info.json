@@ -1,0 +1,18 @@
+{
+  "name": "plant-disease-classifier",
+  "alias": "champion",
+  "version": "1",
+  "run_id": "a13ce0a6633f441ea341a2761bb105b1",
+  "tags": {
+    "model_sha256": "496dafa6def5284424cc11bf93b5276d7a0faf6f420d0e022a43231f71dba62b",
+    "source_checkpoint": "best_model.pth",
+    "training_run_id": "a13ce0a6633f441ea341a2761bb105b1",
+    "quality_gate": "passed",
+    "reference_model_sha256": "496dafa6def5284424cc11bf93b5276d7a0faf6f420d0e022a43231f71dba62b",
+    "test_accuracy": "0.9518",
+    "test_macro_f1": "0.9534",
+    "test_n_images": "2073",
+    "num_classes": "15"
+  },
+  "exported_at": "2026-10-10T04:15:51+00:00"
+}

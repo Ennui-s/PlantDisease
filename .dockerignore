@@ -1,0 +1,9 @@
+# Allow-list: nothing goes into the image unless it is listed here.
+*
+!config.py
+!models/
+!registry/
+!serving/
+!model_export/
+!requirements-serve.txt
+**/__pycache__

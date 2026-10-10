@@ -18,7 +18,6 @@ from pathlib import Path
 
 import torch
 
-from config import CONFIG
 from data.dataloader import get_loaders
 from models.model import PlantDiseaseModel
 from utils.visualization import generate_confusion_matrix, save_gradcam_image

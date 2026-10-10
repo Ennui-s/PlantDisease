@@ -62,7 +62,8 @@ class PredictionResponse(BaseModel):
 
 def _error(request: Request, status: int, code: str, message: str) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
-    return JSONResponse(status_code=status,
+    headers = {"X-Request-ID": request_id} if request_id else None
+    return JSONResponse(status_code=status, headers=headers,
                         content={"error": {"code": code, "message": message, "request_id": request_id}})
 
 

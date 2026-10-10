@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -149,3 +151,28 @@ def load_champion(run_cfg: dict):
     """Load whatever version the champion alias currently points at (no model file path anywhere)."""
     track, reg, _ = _setup(run_cfg)
     return mlflow.pyfunc.load_model(f"models:/{reg['model_name']}@{reg['champion_alias']}")
+
+
+def export_champion(run_cfg: dict, out_dir: str) -> dict:
+    """Copy the champion's packaged model to out_dir (model/ + model_info.json), e.g. for a container image."""
+    import mlflow.artifacts
+
+    _, reg, client = _setup(run_cfg)
+    try:
+        mv = client.get_model_version_by_alias(reg["model_name"], reg["champion_alias"])
+    except Exception as exc:
+        raise RegistryError(f"No '{reg['champion_alias']}' version of {reg['model_name']} found: {exc}") from exc
+    out = Path(out_dir)
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        mlflow.artifacts.download_artifacts(artifact_uri=f"models:/{reg['model_name']}/{mv.version}", dst_path=tmp)
+        found = list(Path(tmp).rglob("MLmodel"))
+        if not found:
+            raise RegistryError("The downloaded artifacts do not contain an MLflow model.")
+        shutil.copytree(found[0].parent, out / "model")
+    info = {"name": reg["model_name"], "alias": reg["champion_alias"], "version": str(mv.version),
+            "run_id": getattr(mv, "run_id", None), "tags": dict(mv.tags or {}),
+            "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    (out / "model_info.json").write_text(json.dumps(info, indent=2))
+    return info

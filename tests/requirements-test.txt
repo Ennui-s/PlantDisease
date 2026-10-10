@@ -1,0 +1,9 @@
+# Everything the tests and CI need (torch and torchvision are installed separately, CPU-only)
+-r requirements-serve.txt
+numpy
+Pillow
+scikit-learn
+pyyaml
+pytest
+httpx
+ruff

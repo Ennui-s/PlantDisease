@@ -18,6 +18,7 @@ class Settings:
     default_input_size: int = 224                   # used only if the model does not declare its input size
     top_k: int = 3                                  # TOP_K
     admin_token: Optional[str] = None               # ADMIN_TOKEN: enables POST /reload when set
+    model_dir: Optional[str] = None                 # MODEL_DIR: serve an exported model folder instead of asking the registry
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,4 +33,5 @@ class Settings:
             min_side=int(env.get("MIN_SIDE", d.min_side)),
             top_k=int(env.get("TOP_K", d.top_k)),
             admin_token=env.get("ADMIN_TOKEN") or None,
+            model_dir=env.get("MODEL_DIR") or None,
         )

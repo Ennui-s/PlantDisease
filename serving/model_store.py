@@ -1,7 +1,7 @@
 """Holds the champion model for the service and turns its output into an API response.
 
-The model is addressed only through the registry alias (models:/<name>@<alias>); no file path is
-configured anywhere. It is loaded by the concrete version the alias resolves to, so the version
+The model is addressed through the registry alias (models:/<name>@<alias>), or, in a container, from an
+exported copy of the champion (MODEL_DIR). It is loaded by the concrete version the alias resolves to, so the version
 reported by the API is always the version that is actually loaded.
 """
 from __future__ import annotations
@@ -43,6 +43,18 @@ class LoadedModel:
                 "loaded_at": self.loaded_at}
 
 
+def _wrap(model, settings: Settings, name: str, alias: str, version: str, run_id, tags) -> LoadedModel:
+    classes = list(model.unwrap_python_model().classes)
+    try:  # input size from the model signature: (-1, 3, H, W)
+        input_size = int(model.metadata.signature.inputs.inputs[0].shape[-1])
+    except Exception:
+        input_size = settings.default_input_size
+    return LoadedModel(
+        predict=model.predict, classes=classes, name=name, alias=alias, version=str(version),
+        input_size=input_size, run_id=run_id, tags=dict(tags or {}),
+        loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
+
 def mlflow_loader(settings: Settings) -> LoadedModel:
     """Resolve the alias to a version in the registry and load that version."""
     import mlflow
@@ -53,22 +65,30 @@ def mlflow_loader(settings: Settings) -> LoadedModel:
     client = MlflowClient(tracking_uri=settings.tracking_uri, registry_uri=settings.tracking_uri)
     mv = client.get_model_version_by_alias(settings.model_name, settings.model_alias)
     model = mlflow.pyfunc.load_model(f"models:/{settings.model_name}/{mv.version}")
+    return _wrap(model, settings, settings.model_name, settings.model_alias, mv.version,
+                 getattr(mv, "run_id", None), mv.tags)
 
-    classes = list(model.unwrap_python_model().classes)
-    try:  # input size from the model signature: (-1, 3, H, W)
-        input_size = int(model.metadata.signature.inputs.inputs[0].shape[-1])
-    except Exception:
-        input_size = settings.default_input_size
-    return LoadedModel(
-        predict=model.predict, classes=classes, name=settings.model_name, alias=settings.model_alias,
-        version=str(mv.version), input_size=input_size, run_id=getattr(mv, "run_id", None),
-        tags=dict(mv.tags or {}), loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
+def local_loader(settings: Settings) -> LoadedModel:
+    """Load an exported model folder (python -m registry export): <dir>/model and <dir>/model_info.json.
+
+    Used by the container image, which carries its own copy of the champion and needs no registry.
+    """
+    import json
+    from pathlib import Path
+
+    import mlflow.pyfunc
+
+    folder = Path(settings.model_dir)
+    info = json.loads((folder / "model_info.json").read_text())
+    model = mlflow.pyfunc.load_model(str(folder / "model"))
+    return _wrap(model, settings, info["name"], info["alias"], info["version"], info.get("run_id"), info.get("tags"))
 
 
 class ModelStore:
     def __init__(self, settings: Settings, loader: Optional[Callable[[Settings], LoadedModel]] = None):
         self.settings = settings
-        self._loader = loader or mlflow_loader
+        self._loader = loader or (local_loader if settings.model_dir else mlflow_loader)
         self._loaded: Optional[LoadedModel] = None
         self._load_lock = threading.Lock()
         self.infer_lock = threading.Lock()  # one prediction at a time; also keeps a reload from interleaving

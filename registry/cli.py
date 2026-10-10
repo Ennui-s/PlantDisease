@@ -4,11 +4,12 @@
     python -m registry show
     python -m registry promote --version 2
     python -m registry check                                      # load the champion and run a prediction
+    python -m registry export                                     # copy the champion to model_export/ (for Docker)
 """
 import argparse
 
 from training.run_config import apply_overrides, load_run_config
-from registry.ops import RegistryError, list_versions, load_champion, promote, register
+from registry.ops import RegistryError, export_champion, list_versions, load_champion, promote, register
 
 
 def _show(run_cfg) -> int:
@@ -48,6 +49,8 @@ def main(argv=None) -> int:
     pro.add_argument("--version", required=True)
     sub.add_parser("show", help="list registered versions and aliases")
     sub.add_parser("check", help="load the champion through the alias and run a test prediction")
+    exp = sub.add_parser("export", help="copy the champion model to a folder (used to build the Docker image)")
+    exp.add_argument("--dir", default="model_export")
     args = parser.parse_args(argv)
 
     run_cfg = load_run_config(args.config)
@@ -66,6 +69,10 @@ def main(argv=None) -> int:
         if args.command == "promote":
             r = promote(args.version, run_cfg)
             print(f"{r['alias']} now points to version {r['version']} (previously {r['previous']}).")
+            return 0
+        if args.command == "export":
+            r = export_champion(run_cfg, args.dir)
+            print(f"Exported {r['name']} version {r['version']} ({r['alias']}) to {args.dir}/")
             return 0
         return _show(run_cfg) if args.command == "show" else _check(run_cfg)
     except RegistryError as exc:
