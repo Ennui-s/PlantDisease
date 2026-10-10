@@ -5,6 +5,7 @@
 Endpoints
     GET  /health   liveness: the process is up
     GET  /ready    readiness: 200 only when the champion model is loaded
+    GET  /metrics  request, prediction, latency and confidence metrics (Prometheus text format)
     GET  /model    which model version is being served, with its test metrics and input contract
     POST /predict  multipart upload (field "file") -> prediction, confidence, top-k, model version, latency
     POST /reload   re-resolve the champion alias and load it (only enabled when ADMIN_TOKEN is set)
@@ -14,11 +15,12 @@ Every error is JSON: {"error": {"code", "message", "request_id"}}. Internal deta
 import hmac
 import logging
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, File, Header, Request, UploadFile
+from fastapi import FastAPI, File, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -26,6 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from serving.errors import ApiError
 from serving.model_store import ModelStore
+from serving.monitoring import KNOWN_ENDPOINTS, Metrics, log_request, setup_logging
 from serving.service import predict_bytes
 from serving.settings import Settings
 
@@ -61,6 +64,7 @@ class PredictionResponse(BaseModel):
 
 
 def _error(request: Request, status: int, code: str, message: str) -> JSONResponse:
+    request.state.error_code = code   # read by the request middleware for logs and metrics
     request_id = getattr(request.state, "request_id", None)
     headers = {"X-Request-ID": request_id} if request_id else None
     return JSONResponse(status_code=status, headers=headers,
@@ -70,6 +74,8 @@ def _error(request: Request, status: int, code: str, message: str) -> JSONRespon
 def create_app(store: Optional[ModelStore] = None, settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or (store.settings if store else Settings.from_env())
     store = store or ModelStore(settings)
+    metrics = Metrics()
+    setup_logging()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -80,19 +86,43 @@ def create_app(store: Optional[ModelStore] = None, settings: Optional[Settings] 
     app = FastAPI(title="Plant Disease Classifier", version="1.0", lifespan=lifespan,
                   description="Serves the champion model from the MLflow model registry.")
     app.state.store = store
+    app.state.metrics = metrics
+
+    def record(request: Request, status: int, started: float) -> None:
+        """Count the request and write its structured log line."""
+        endpoint = request.url.path if request.url.path in KNOWN_ENDPOINTS else "unmatched"
+        error_code = getattr(request.state, "error_code", None) or ("internal_error" if status >= 500 else None)
+        prediction = getattr(request.state, "prediction", None)
+        metrics.observe_request(endpoint, status, error_code)
+        if prediction:
+            metrics.observe_prediction(prediction["label"], prediction["confidence"],
+                                       prediction["total_s"], prediction["inference_s"])
+        log_request(request_id=request.state.request_id, method=request.method, endpoint=endpoint, status=status,
+                    latency_ms=round((time.perf_counter() - started) * 1000, 2),
+                    model_version=prediction["version"] if prediction else None,
+                    prediction=prediction["label"] if prediction else None,
+                    confidence=prediction["confidence"] if prediction else None,
+                    inference_ms=round(prediction["inference_s"] * 1000, 2) if prediction else None,
+                    error_category=error_code if status >= 400 else None)
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
+        started = time.perf_counter()
         supplied = request.headers.get("x-request-id", "")
         request.state.request_id = supplied if _REQUEST_ID.match(supplied) else uuid.uuid4().hex
         length = request.headers.get("content-length", "")
-        if request.method == "POST" and length.isdigit() \
-                and int(length) > settings.max_upload_bytes + _UPLOAD_OVERHEAD:
-            response = _error(request, 413, "file_too_large",
-                              f"The upload exceeds the {settings.max_upload_bytes} byte limit.")
-        else:
-            response = await call_next(request)
+        try:
+            if request.method == "POST" and length.isdigit() \
+                    and int(length) > settings.max_upload_bytes + _UPLOAD_OVERHEAD:
+                response = _error(request, 413, "file_too_large",
+                                  f"The upload exceeds the {settings.max_upload_bytes} byte limit.")
+            else:
+                response = await call_next(request)
+        except Exception:
+            record(request, 500, started)   # an unhandled error still counts; the error handler answers the client
+            raise
         response.headers["X-Request-ID"] = request.state.request_id
+        record(request, response.status_code, started)
         return response
 
     @app.exception_handler(ApiError)
@@ -131,7 +161,16 @@ def create_app(store: Optional[ModelStore] = None, settings: Optional[Settings] 
     @app.post("/predict", response_model=PredictionResponse)
     def predict(request: Request, file: UploadFile = File(...)):
         data = file.file.read(settings.max_upload_bytes + 1)
-        return predict_bytes(store, settings, data, request.state.request_id)
+        result = predict_bytes(store, settings, data, request.state.request_id)
+        request.state.prediction = {   # picked up by the request middleware for logs and metrics
+            "label": result["prediction"], "confidence": result["confidence"], "version": result["model"]["version"],
+            "inference_s": result["latency_ms"]["inference_ms"] / 1000, "total_s": result["latency_ms"]["total_ms"] / 1000}
+        return result
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics_endpoint():
+        model = store.require().ref() if store.ready else None
+        return Response(content=metrics.render(model), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     if settings.admin_token:
         @app.post("/reload")

@@ -137,3 +137,61 @@ def test_reload_is_absent_without_a_token_and_protected_with_one():
         assert_error(client.post("/reload", headers={"X-Admin-Token": "wrong"}), 401, "unauthorized")
         ok = client.post("/reload", headers={"X-Admin-Token": "s3cret"})
         assert ok.status_code == 200 and ok.json()["reloaded"] is True and ok.json()["model"]["version"] == "3"
+
+
+def test_metrics_and_logs_reflect_traffic():
+    import json
+    import logging
+
+    from serving.metrics_summary import parse
+
+    class Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.DEBUG)
+            self.lines = []
+
+        def emit(self, record):
+            self.lines.append(record.getMessage())
+
+    capture = Capture()
+    logger = logging.getLogger("plant_api.access")
+    with client_for() as client:
+        logger.addHandler(capture)
+        logger.setLevel(logging.DEBUG)
+        try:
+            for _ in range(2):
+                assert upload(client, image_bytes(), name="SECRET-leaf-name.jpg").status_code == 200
+            assert upload(client, b"just text").status_code == 415
+            assert client.get("/nope").status_code == 404
+            metrics = client.get("/metrics")
+        finally:
+            logger.removeHandler(capture)
+        assert metrics.status_code == 200 and metrics.headers["content-type"].startswith("text/plain")
+        samples = parse(metrics.text)
+
+        def value(name, **labels):
+            return next(v for n, l, v in samples if n == name and all(l.get(k) == x for k, x in labels.items()))
+
+        assert value("plant_requests_total", endpoint="/predict", status="200") == 2
+        assert value("plant_requests_total", endpoint="/predict", status="415") == 1
+        assert value("plant_requests_total", endpoint="unmatched", status="404") == 1
+        assert value("plant_predictions_total", label="b") == 2
+        assert value("plant_rejected_requests_total", reason="unsupported_media_type") == 1
+        assert value("plant_prediction_confidence_count") == 2 and value("plant_model_loaded") == 1
+        assert value("plant_model_info", version="3") == 1
+
+    records = [json.loads(line) for line in capture.lines]
+    predictions = [r for r in records if r["endpoint"] == "/predict" and r["status"] == 200]
+    assert len(predictions) == 2 and predictions[0]["prediction"] == "b" and predictions[0]["model_version"] == "3"
+    assert {"timestamp", "request_id", "endpoint", "status", "latency_ms", "confidence"} <= set(predictions[0])
+    assert [r for r in records if r["status"] == 415][0]["error_category"] == "unsupported_media_type"
+    assert not any("SECRET" in line for line in capture.lines)         # file names are never logged
+
+
+def test_server_errors_are_counted():
+    from serving.metrics_summary import parse
+
+    with client_for(broken=True) as client:
+        assert upload(client, image_bytes()).status_code == 500
+        samples = parse(client.get("/metrics").text)
+        assert any(n == "plant_errors_total" and l["category"] == "inference_failed" and v == 1 for n, l, v in samples)

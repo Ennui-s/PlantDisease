@@ -4,7 +4,7 @@ An image classifier that identifies plant leaf diseases from photographs, built 
 
 **Test accuracy: 95.18%** (0.9517607332368548). Validation accuracy stabilised at roughly 95-96% during training.
 
-> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion, packaged as a **Docker image**, with an automated **test suite and GitHub Actions CI** (see [ML mini-platform](#ml-mini-platform-in-progress)). Monitoring and retraining are not implemented yet. See [Roadmap](#roadmap).
+> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion, packaged as a **Docker image**, with an automated **test suite and GitHub Actions CI**, and **request logging and metrics** for the running service (see [ML mini-platform](#ml-mini-platform-in-progress)). Retraining is not implemented yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -131,6 +131,8 @@ serving/
   service.py           # the prediction logic (framework-free)
   images.py            # upload validation and preprocessing
   model_store.py       # loads the champion through the registry alias
+  monitoring.py        # structured request logs and Prometheus-format metrics
+  metrics_summary.py   # readable summary of /metrics
   settings.py          # environment-variable settings
   errors.py            # API error type
   check_parity.py      # checks serving preprocessing against the training transform
@@ -427,13 +429,55 @@ The integration tests are skipped automatically if torch, MLflow or `model_expor
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests: install CPU-only PyTorch and the test dependencies, lint (syntax errors, undefined names, unused imports), run the tests, then build the Docker image, start it, wait for `/ready`, send a generated image to `/predict` and check that a non-image upload gets a 415. Nothing is trained in CI, and CI needs the committed `model_export/` folder.
 
-**How it was checked:** the unit tests that do not need FastAPI, torch or MLflow (43 test cases) were run, and they were checked against deliberately introduced bugs (a gate that lets any drop through, a wrong preprocessing scale, leakage that never fails, a removed hash check, NaN output accepted, circular configs not detected), all of which made tests fail. **`[CONFIRM: python -m pytest -q on the real setup (API and integration tests included), and the first run of the GitHub Actions workflow]`**
+**How it was checked:** the unit tests that do not need FastAPI, torch or MLflow (43 test cases) were run, and they were checked against deliberately introduced bugs (a gate that lets any drop through, a wrong preprocessing scale, leakage that never fails, a removed hash check, NaN output accepted, circular configs not detected), all of which made tests fail. On the real setup the full suite passes (59 tests, including the API tests, the real exported model, preprocessing parity with the training transform and the real-MLflow registry operations). Running it against a real MLflow store found two genuine inconsistencies (this MLflow version returns model-version numbers as integers in some calls); both were fixed. **`[CONFIRM: the first run of the GitHub Actions workflow]`**
+
+### Phase 8: monitoring (implemented)
+
+**Why:** after deployment you should be able to see what the service is doing: how much traffic it gets, how often it refuses or fails, how fast it is, and whether its predictions look the way they should.
+
+**Structured logs.** The service writes one JSON line per request to standard output, built only from an allow-list of fields: `timestamp`, `request_id`, `method`, `endpoint`, `status`, `latency_ms`, and for predictions `model_version`, `prediction`, `confidence`, `inference_ms`, and for failures `error_category`. Uploaded images, file names and headers are never logged. Successful health, readiness and metrics calls are logged at DEBUG so probes do not flood the log; client errors are WARNING and server errors ERROR. The request id in a log line is the same one returned in the `X-Request-ID` header and in error bodies, so one failing request can be traced.
+
+```json
+{"timestamp":"2026-10-10T18:29:04.195+00:00","event":"request","request_id":"d08d084e","method":"POST","endpoint":"/predict","status":200,"latency_ms":151.3,"model_version":"1","prediction":"Potato___healthy","confidence":0.99942,"inference_ms":136.2}
+```
+
+**Metrics.** `GET /metrics` returns counters and histograms in the Prometheus text format (no extra dependency; the format is simple enough to render directly, and a Prometheus server could scrape it unchanged):
+
+| Metric | Meaning |
+|---|---|
+| `plant_requests_total{endpoint,status}` | all requests |
+| `plant_predictions_total{label}` | successful predictions by predicted class (class distribution) |
+| `plant_rejected_requests_total{reason}` | `/predict` requests refused because of the input (4xx): the rejection rate is this over the `/predict` request count |
+| `plant_errors_total{category}` | server-side failures (5xx) |
+| `plant_prediction_confidence` | histogram of the top-1 probability (confidence distribution) |
+| `plant_predict_duration_seconds`, `plant_inference_duration_seconds` | latency histograms |
+| `plant_model_loaded`, `plant_model_info{name,alias,version}` | which model version is being served |
+
+For a readable view without Prometheus or Grafana:
+
+```powershell
+python -m serving.metrics_summary --url http://localhost:8000
+```
+
+```
+Model served: plant-disease-classifier @champion version 1
+/predict requests: 4   successful: 3   rejected: 1   server errors: 0
+Rejection rate: 25.0%
+Rejections by reason: unsupported_media_type 1
+Predict latency: p50 ~ 150 ms, p95 ~ 190 ms (bucket estimates)
+Confidence: mean 0.863; 33.3% of predictions below 0.7
+Predicted classes: Tomato_healthy 3
+```
+(illustrative output from a unit-test fixture, not from a real run)
+
+What this is for: a sudden rise in rejections points at a client or upload problem; a shift in the predicted-class distribution or in the share of low-confidence predictions is a signal that the incoming images differ from the training data (the model cannot tell a leaf of another crop from the ones it knows); latency and errors show the health of the service itself. The metrics live in the memory of the running process and reset on restart; there are no alerts, dashboards or long-term storage.
+
+**How it was checked:** the metrics and logging code was unit-tested (counting rules, histogram consistency, label escaping and round trip, rendered text parsed back, the summary numbers, log fields limited to the allow-list with no file names or image bytes, log levels) and the tests were checked against deliberately introduced bugs. The API tests for `/metrics` and the logs run in the FastAPI test suite. **`[CONFIRM: python -m pytest -q passing with the monitoring tests, and the output of python -m serving.metrics_summary against the running container after a few requests]`**
 
 ## Roadmap
 
-Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), the inference API (Phase 5), Docker packaging (Phase 6), and tests with CI (Phase 7). The following are **planned and not yet implemented**:
+Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), the inference API (Phase 5), Docker packaging (Phase 6), tests with CI (Phase 7), and monitoring (Phase 8). The following are **planned and not yet implemented**:
 
-- Inference monitoring
 - Retraining and model promotion
 
 This section will be updated as each item is built.

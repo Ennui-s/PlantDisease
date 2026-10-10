@@ -86,7 +86,7 @@ def register(model_path: str, run_cfg: dict, run_id: Optional[str] = None,
     existing = find_version_by_sha(client.search_model_versions(f"name='{reg['model_name']}'"),
                                    metrics["model_sha256"])
     if existing is not None:
-        return {"status": "already_registered", "version": existing.version, "name": reg["model_name"]}
+        return {"status": "already_registered", "version": str(existing.version), "name": reg["model_name"]}
 
     run_id = run_id or training_run_id(model_path)
     cfg = {**track, "enabled": True}  # registering needs a run to hold the model artifacts
@@ -109,7 +109,7 @@ def register(model_path: str, run_cfg: dict, run_id: Optional[str] = None,
     became_champion = reg["champion_alias"] not in aliases
     if became_champion:  # bootstrap: the first registered version has nothing to be compared with
         client.set_registered_model_alias(reg["model_name"], reg["champion_alias"], mv.version)
-    return {"status": "registered", "version": mv.version, "name": reg["model_name"],
+    return {"status": "registered", "version": str(mv.version), "name": reg["model_name"],
             "became_champion": became_champion, "run_id": run_id}
 
 
@@ -126,6 +126,7 @@ def promote(version: str, run_cfg: dict) -> dict:
         raise RegistryError("Not promoted:\n  - " + "\n  - ".join(problems))
     aliases = client.get_registered_model(reg["model_name"]).aliases or {}
     previous = aliases.get(reg["champion_alias"])
+    previous = None if previous is None else str(previous)  # MLflow versions differ: int or str
     client.set_registered_model_alias(reg["model_name"], reg["champion_alias"], version)
     client.set_model_version_tag(reg["model_name"], version, "replaced_champion", str(previous))
     return {"name": reg["model_name"], "alias": reg["champion_alias"], "version": version, "previous": previous}
@@ -140,7 +141,7 @@ def list_versions(run_cfg: dict) -> dict:
     rows = []
     for v in sorted(versions, key=lambda x: int(x.version)):
         t = v.tags or {}
-        rows.append({"version": v.version,
+        rows.append({"version": str(v.version),
                      "aliases": sorted(a for a, ver in aliases.items() if str(ver) == str(v.version)),
                      "test_accuracy": t.get("test_accuracy"), "test_macro_f1": t.get("test_macro_f1"),
                      "quality_gate": t.get("quality_gate"), "source_checkpoint": t.get("source_checkpoint")})

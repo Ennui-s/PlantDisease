@@ -45,6 +45,7 @@ jobs:
           docker cp api:/tmp/leaf.jpg leaf.jpg
           curl -sf -F "file=@leaf.jpg" http://localhost:8000/predict
           test "$(curl -s -o /dev/null -w '%{http_code}' -F 'file=@README.md' http://localhost:8000/predict)" = "415"
+          curl -sf http://localhost:8000/metrics | grep -q 'plant_predictions_total'
       - name: Container logs
         if: failure()
         run: docker logs api
