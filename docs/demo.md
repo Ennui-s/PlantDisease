@@ -1,5 +1,5 @@
 # Demonstration walkthrough
-
+------------------Under construction, waiting screenshots------------
 A 10-minute tour that shows the whole lifecycle with real commands. Run everything from the repository root. Outputs marked **real** were produced by actual runs of this project; the others describe what you should see.
 
 ## The story in two sentences
@@ -75,7 +75,7 @@ python -m retraining --name retrain-demo
 Expected: the full workflow runs and prints a decision. Retraining the same recipe on the same data should normally be **rejected** (not significantly better), with the reasons and the McNemar p-value written to `reports/retraining/retrain-demo/decision.json`. Point out the rule: promotion needs a significant, paired improvement on the same test images and no class getting much worse. (This end-to-end run has not been done yet; the decision logic is unit-tested.)
 
 ## Screenshots worth adding to `docs/img/`
-None have been captured yet. Useful ones: the MLflow runs table; one run's page (parameters, tags, metrics, artifacts); the registered model page with the `champion` alias; the FastAPI `/docs` page; the output of `metrics_summary`; the green GitHub Actions run. Reference them from the README once they exist.
+To-do! None have been captured yet. Useful ones: the MLflow runs table; one run's page (parameters, tags, metrics, artifacts); the registered model page with the `champion` alias; the FastAPI `/docs` page; the output of `metrics_summary`; the green GitHub Actions run. Reference them from the README once they exist.
 
-## If asked about limits
-Be direct about them: all photographs are from a controlled dataset; the model always answers with one of 15 classes; the test set is reused for model selection; near-duplicates were not checked; monitoring cannot see correctness. See [failure_analysis.md](failure_analysis.md).
+## Limits
+See [failure_analysis.md](failure_analysis.md).
