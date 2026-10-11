@@ -16,7 +16,6 @@ import hashlib
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from validation import checks
 
@@ -43,7 +42,7 @@ def _link_or_copy(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def index_existing(data_dir: Path) -> Dict[str, tuple]:
+def index_existing(data_dir: Path) -> dict[str, tuple]:
     """sha256 -> (split, class) for every image already in train/val/test."""
     index = {}
     for split in SPLITS:
@@ -54,7 +53,7 @@ def index_existing(data_dir: Path) -> Dict[str, tuple]:
     return index
 
 
-def ingest(new_dir: str, data_dir: str, derived_dir: str, cfg: Optional[dict] = None) -> dict:
+def ingest(new_dir: str, data_dir: str, derived_dir: str, cfg: dict | None = None) -> dict:
     cfg = {**checks.DEFAULTS, **(cfg or {})}
     new, base, derived = Path(new_dir), Path(data_dir), Path(derived_dir)
     records, findings = checks.scan_tree(new, None, new)
@@ -74,7 +73,7 @@ def ingest(new_dir: str, data_dir: str, derived_dir: str, cfg: Optional[dict] = 
     existing = index_existing(base)
     allowed = {e.lower() for e in cfg["extensions"]}
 
-    excluded: Dict[str, List[str]] = {}
+    excluded: dict[str, list[str]] = {}
 
     def exclude(reason, rec):
         excluded.setdefault(reason, []).append(rec.rel)
@@ -92,7 +91,7 @@ def ingest(new_dir: str, data_dir: str, derived_dir: str, cfg: Optional[dict] = 
         else:
             candidates.append(r)
 
-    by_hash: Dict[str, list] = {}
+    by_hash: dict[str, list] = {}
     for r in candidates:
         by_hash.setdefault(r.sha256, []).append(r)
     accepted = []
@@ -119,7 +118,7 @@ def ingest(new_dir: str, data_dir: str, derived_dir: str, cfg: Optional[dict] = 
     for r in accepted:
         _link_or_copy(Path(r.path), derived / "train" / r.cls / f"new_{r.sha256[:12]}{r.ext}")
 
-    per_class: Dict[str, int] = {}
+    per_class: dict[str, int] = {}
     for r in accepted:
         per_class[r.cls] = per_class.get(r.cls, 0) + 1
     return {

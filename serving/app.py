@@ -18,7 +18,6 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import List, Optional
 
 from fastapi import FastAPI, File, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -57,7 +56,7 @@ class Latency(BaseModel):
 class PredictionResponse(BaseModel):
     prediction: str
     confidence: float
-    top_k: List[TopK]
+    top_k: list[TopK]
     model: ModelRef
     latency_ms: Latency
     request_id: str
@@ -71,7 +70,7 @@ def _error(request: Request, status: int, code: str, message: str) -> JSONRespon
                         content={"error": {"code": code, "message": message, "request_id": request_id}})
 
 
-def create_app(store: Optional[ModelStore] = None, settings: Optional[Settings] = None) -> FastAPI:
+def create_app(store: ModelStore | None = None, settings: Settings | None = None) -> FastAPI:
     settings = settings or (store.settings if store else Settings.from_env())
     store = store or ModelStore(settings)
     metrics = Metrics()
@@ -174,7 +173,7 @@ def create_app(store: Optional[ModelStore] = None, settings: Optional[Settings] 
 
     if settings.admin_token:
         @app.post("/reload")
-        def reload(x_admin_token: Optional[str] = Header(default=None)):
+        def reload(x_admin_token: str | None = Header(default=None)):
             if not hmac.compare_digest((x_admin_token or "").encode(), settings.admin_token.encode()):
                 raise ApiError(401, "unauthorized", "A valid X-Admin-Token header is required.")
             reloaded = store.load()

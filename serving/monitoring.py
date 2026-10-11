@@ -16,8 +16,7 @@ import logging
 import sys
 import threading
 from bisect import bisect_left
-from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from datetime import UTC, datetime
 
 ACCESS_LOGGER = "plant_api.access"
 LOG_FIELDS = ("timestamp", "event", "request_id", "method", "endpoint", "status", "latency_ms",
@@ -42,7 +41,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
 def log_request(**fields) -> None:
     """Write one structured log line. Fields outside LOG_FIELDS are dropped."""
-    record = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), "event": "request"}
+    record = {"timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"), "event": "request"}
     record.update({k: v for k, v in fields.items() if k in LOG_FIELDS and v is not None})
     status = int(fields.get("status") or 0)
     quiet = fields.get("endpoint") in QUIET_ENDPOINTS and status < 400
@@ -83,15 +82,15 @@ def _labels(**labels) -> str:
 class Metrics:
     def __init__(self):
         self._lock = threading.Lock()
-        self.requests: Dict[Tuple[str, str], int] = {}
-        self.predictions: Dict[str, int] = {}
-        self.rejected: Dict[str, int] = {}
-        self.errors: Dict[str, int] = {}
+        self.requests: dict[tuple[str, str], int] = {}
+        self.predictions: dict[str, int] = {}
+        self.rejected: dict[str, int] = {}
+        self.errors: dict[str, int] = {}
         self.confidence = Histogram(CONFIDENCE_BUCKETS)
         self.predict_latency = Histogram(LATENCY_BUCKETS)
         self.inference_latency = Histogram(LATENCY_BUCKETS)
 
-    def observe_request(self, endpoint: str, status: int, error_code: Optional[str] = None) -> None:
+    def observe_request(self, endpoint: str, status: int, error_code: str | None = None) -> None:
         with self._lock:
             key = (endpoint, str(status))
             self.requests[key] = self.requests.get(key, 0) + 1
@@ -109,7 +108,7 @@ class Metrics:
             self.predict_latency.observe(total_s)
             self.inference_latency.observe(inference_s)
 
-    def render(self, model: Optional[dict] = None) -> str:
+    def render(self, model: dict | None = None) -> str:
         """Prometheus text format. `model` is {"name", "alias", "version"} of the served model, or None."""
         out = []
 

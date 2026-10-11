@@ -1,9 +1,9 @@
 """Champion vs candidate: paired comparison on the same test images and the promotion decision. Pure Python."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import comb
 from pathlib import Path
-from typing import List, Sequence
 
 import yaml
 
@@ -36,7 +36,7 @@ def mcnemar_exact(b: int, c: int) -> float:
     n = b + c
     if n == 0:
         return 1.0
-    tail = sum(comb(n, k) for k in range(0, min(b, c) + 1))
+    tail = sum(comb(n, k) for k in range(min(b, c) + 1))
     return min(1.0, 2 * tail / 2 ** n)
 
 
@@ -47,7 +47,7 @@ def decide(champion: dict, candidate: dict, y_true, champion_pred, candidate_pre
     p_value = mcnemar_exact(b, c)
     gain = candidate["accuracy"] - champion["accuracy"]
 
-    failures: List[str] = []
+    failures: list[str] = []
     if c <= b:
         failures.append(f"the candidate does not fix more images than it breaks ({c} fixed, {b} broken)")
     if gain < policy["min_accuracy_gain"] - EPS:

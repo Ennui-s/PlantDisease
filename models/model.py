@@ -1,7 +1,8 @@
-import torch
-import torch.nn as nn
+from torch import nn
 from torchvision import models
+
 from config import CONFIG
+
 
 class PlantDiseaseModel(nn.Module):
     def __init__(self, num_classes):

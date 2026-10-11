@@ -8,8 +8,15 @@
 """
 import argparse
 
+from registry.ops import (
+    RegistryError,
+    export_champion,
+    list_versions,
+    load_champion,
+    promote,
+    register,
+)
 from training.run_config import apply_overrides, load_run_config
-from registry.ops import RegistryError, export_champion, list_versions, load_champion, promote, register
 
 
 def _show(run_cfg) -> int:
@@ -27,6 +34,7 @@ def _show(run_cfg) -> int:
 
 def _check(run_cfg) -> int:
     import numpy as np
+
     from config import CONFIG
     model = load_champion(run_cfg)
     size = CONFIG["image_size"]

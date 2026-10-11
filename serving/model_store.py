@@ -7,9 +7,9 @@ reported by the API is always the version that is actually loaded.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, List, Optional
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -23,12 +23,12 @@ REPORTED_TAGS = ("test_accuracy", "test_macro_f1", "quality_gate", "dataset_fing
 @dataclass
 class LoadedModel:
     predict: Callable[[np.ndarray], np.ndarray]
-    classes: List[str]
+    classes: list[str]
     name: str
     alias: str
     version: str
     input_size: int
-    run_id: Optional[str] = None
+    run_id: str | None = None
     tags: dict = field(default_factory=dict)
     loaded_at: str = ""
 
@@ -52,7 +52,7 @@ def _wrap(model, settings: Settings, name: str, alias: str, version: str, run_id
     return LoadedModel(
         predict=model.predict, classes=classes, name=name, alias=alias, version=str(version),
         input_size=input_size, run_id=run_id, tags=dict(tags or {}),
-        loaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        loaded_at=datetime.now(UTC).isoformat(timespec="seconds"))
 
 
 def mlflow_loader(settings: Settings) -> LoadedModel:
@@ -86,13 +86,13 @@ def local_loader(settings: Settings) -> LoadedModel:
 
 
 class ModelStore:
-    def __init__(self, settings: Settings, loader: Optional[Callable[[Settings], LoadedModel]] = None):
+    def __init__(self, settings: Settings, loader: Callable[[Settings], LoadedModel] | None = None):
         self.settings = settings
         self._loader = loader or (local_loader if settings.model_dir else mlflow_loader)
-        self._loaded: Optional[LoadedModel] = None
+        self._loaded: LoadedModel | None = None
         self._load_lock = threading.Lock()
         self.infer_lock = threading.Lock()  # one prediction at a time; also keeps a reload from interleaving
-        self.last_error: Optional[str] = None  # kept server-side; never returned to API users
+        self.last_error: str | None = None  # kept server-side; never returned to API users
 
     def load(self) -> bool:
         """(Re)load the champion. On failure the previously loaded model, if any, keeps serving."""
@@ -116,7 +116,7 @@ class ModelStore:
         return loaded
 
 
-def build_prediction(probabilities, classes: List[str], top_k: int) -> dict:
+def build_prediction(probabilities, classes: list[str], top_k: int) -> dict:
     """Top-k classes with probabilities from one row of model output."""
     probs = np.asarray(probabilities, dtype=np.float64).reshape(-1)
     if probs.shape[0] != len(classes):

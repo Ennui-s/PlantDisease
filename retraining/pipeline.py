@@ -7,8 +7,8 @@ are provided by an `ops` object, so this logic can be tested without torch or ML
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from retraining.compare import decide
 
@@ -17,7 +17,7 @@ class PipelineError(RuntimeError):
     """The workflow cannot continue (not a model-quality outcome)."""
 
 
-def run_pipeline(name: str, ops, policy: dict, new_data: Optional[str] = None,
+def run_pipeline(name: str, ops, policy: dict, new_data: str | None = None,
                  say: Callable[[str], None] = print) -> dict:
     out_dir = Path("reports") / "retraining" / name
     out_dir.mkdir(parents=True, exist_ok=True)

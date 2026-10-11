@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Self
 
 TRACKING_DEFAULTS = {
     "enabled": True,
@@ -38,7 +38,7 @@ def git_info():
         return None, None
 
 
-def training_run_id(model_path, report_dir="reports") -> Optional[str]:
+def training_run_id(model_path, report_dir="reports") -> str | None:
     """MLflow run id of the training run that wrote this checkpoint, if reports/training_run.json says so."""
     p = Path(report_dir) / "training_run.json"
     if not p.is_file():
@@ -51,16 +51,16 @@ def training_run_id(model_path, report_dir="reports") -> Optional[str]:
 class RunTracker:
     """Context manager: opens an MLflow run on entry, closes it (FINISHED/FAILED/KILLED) on exit."""
 
-    def __init__(self, cfg: dict, run_name: Optional[str] = None, resume_run_id: Optional[str] = None):
+    def __init__(self, cfg: dict, run_name: str | None = None, resume_run_id: str | None = None):
         """resume_run_id: attach to an existing run (e.g. add evaluation results to a training run)."""
         self.cfg = cfg
         self.enabled = bool(cfg["enabled"])
         self.run_name = run_name or cfg["run_name"]
         self.resume_run_id = resume_run_id
         self._mlflow = None
-        self.run_id: Optional[str] = None
+        self.run_id: str | None = None
 
-    def __enter__(self) -> "RunTracker":
+    def __enter__(self) -> Self:
         if not self.enabled:
             return self
         try:
@@ -94,14 +94,14 @@ class RunTracker:
         if self._mlflow is not None:
             self._mlflow.set_tags({k: v for k, v in tags.items() if v is not None})
 
-    def log_metrics(self, metrics: dict, step: Optional[int] = None) -> None:
+    def log_metrics(self, metrics: dict, step: int | None = None) -> None:
         if self._mlflow is not None:
             self._mlflow.log_metrics(metrics, step=step)
 
-    def log_artifacts(self, directory, artifact_path: Optional[str] = None) -> None:
+    def log_artifacts(self, directory, artifact_path: str | None = None) -> None:
         if self._mlflow is not None:
             self._mlflow.log_artifacts(str(directory), artifact_path)
 
-    def log_artifact(self, path, artifact_path: Optional[str] = None) -> None:
+    def log_artifact(self, path, artifact_path: str | None = None) -> None:
         if self._mlflow is not None and path is not None and Path(path).is_file():
             self._mlflow.log_artifact(str(path), artifact_path)

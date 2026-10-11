@@ -3,8 +3,8 @@ metadata a registered version carries. Kept pure so they can be tested on their 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 REGISTRY_DEFAULTS = {
     "model_name": "plant-disease-classifier",
@@ -54,8 +54,8 @@ def find_version_by_sha(versions, sha256: str):
     return None
 
 
-def version_tags(metrics: dict, gate: dict, run_tags: Optional[dict], checkpoint_path: str,
-                 run_id: Optional[str]) -> dict:
+def version_tags(metrics: dict, gate: dict, run_tags: dict | None, checkpoint_path: str,
+                 run_id: str | None) -> dict:
     """Metadata stored on a registered model version (lineage, results and gate outcome)."""
     run_tags = run_tags or {}
     tags = {

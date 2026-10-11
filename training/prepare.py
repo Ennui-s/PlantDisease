@@ -4,14 +4,13 @@ Kept free of torch imports so it can be tested and reused (e.g. by CI or a retra
 without loading the ML stack.
 """
 from pathlib import Path
-from typing import Optional
 
 from training.run_config import apply_overrides, load_run_config
 from validation.validate_data import DataValidationError, print_report, run_validation
 
 
-def prepare_run(config_path: Optional[str] = None, skip_validation: bool = False,
-                report_dir: str = "reports", overrides: Optional[dict] = None) -> dict:
+def prepare_run(config_path: str | None = None, skip_validation: bool = False,
+                report_dir: str = "reports", overrides: dict | None = None) -> dict:
     run_cfg = load_run_config(config_path)
     # overrides given by the caller (e.g. the retraining workflow) win over the config file
     run_cfg["config_overrides"] = {**run_cfg["config_overrides"], **(overrides or {})}

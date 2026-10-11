@@ -1,8 +1,9 @@
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
 
 # Confusion Matrix
 def generate_confusion_matrix(model, loader, classes, device, save_path):

@@ -9,7 +9,6 @@ A YAML file may name another one with `base:`; the two are merged (nested sectio
 by key, anything else in the child replaces the base). This keeps experiment files short.
 """
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -51,7 +50,7 @@ def _read_yaml(path: Path, depth: int = 0) -> dict:
     return merged
 
 
-def load_run_config(path: Optional[str] = None) -> dict:
+def load_run_config(path: str | None = None) -> dict:
     if path is None:
         path = DEFAULT_CONFIG_PATH if Path(DEFAULT_CONFIG_PATH).is_file() else None
     data = _read_yaml(Path(path)) if path is not None else {}

@@ -16,7 +16,10 @@ class PlantDiseaseClassifier(mlflow.pyfunc.PythonModel):
     def load_context(self, context):
         import torch
         import torchvision
-        from models.model import PlantDiseaseModel  # shipped with the model via code_paths
+
+        from models.model import (
+            PlantDiseaseModel,  # shipped with the model via code_paths
+        )
 
         with open(context.artifacts["classes"]) as f:
             self.classes = json.load(f)

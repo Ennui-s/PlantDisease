@@ -13,18 +13,18 @@ training/evaluate.py (the original script) is left as it was; this module reuses
 import argparse
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import torch
 
 from data.dataloader import get_loaders
-from models.model import PlantDiseaseModel
-from utils.visualization import generate_confusion_matrix, save_gradcam_image
 from evaluation.gate import evaluate_gate, format_gate, load_gate_config
 from evaluation.metrics import compute_metrics
+from models.model import PlantDiseaseModel
 from tracking.tracker import RunTracker, tracking_cfg, training_run_id
 from training.run_config import apply_overrides, load_run_config
+from utils.visualization import generate_confusion_matrix, save_gradcam_image
 
 
 def _sha256(path) -> str:
@@ -74,7 +74,7 @@ def run_evaluation(model_path, output_dir, n_gradcam=3) -> dict:
         "split": "test",
         "model_path": str(model_path),
         "model_sha256": _sha256(model_path),
-        "evaluated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "evaluated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "device": str(device),
     })
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))

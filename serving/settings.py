@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -14,14 +13,14 @@ class Settings:
     max_upload_bytes: int = 5_000_000               # MAX_UPLOAD_BYTES (the training images are ~20 KB)
     max_pixels: int = 25_000_000                    # MAX_PIXELS: reject huge images before decoding them
     min_side: int = 32                              # MIN_SIDE: same minimum as the training data validation
-    allowed_formats: Tuple[str, ...] = ("JPEG", "PNG")
+    allowed_formats: tuple[str, ...] = ("JPEG", "PNG")
     default_input_size: int = 224                   # used only if the model does not declare its input size
     top_k: int = 3                                  # TOP_K
-    admin_token: Optional[str] = None               # ADMIN_TOKEN: enables POST /reload when set
-    model_dir: Optional[str] = None                 # MODEL_DIR: serve an exported model folder instead of asking the registry
+    admin_token: str | None = None               # ADMIN_TOKEN: enables POST /reload when set
+    model_dir: str | None = None                 # MODEL_DIR: serve an exported model folder instead of asking the registry
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         env = os.environ
         d = cls()
         return cls(

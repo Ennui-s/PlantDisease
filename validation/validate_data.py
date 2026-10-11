@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from config import CONFIG
 from training.run_config import apply_overrides, load_run_config
@@ -34,7 +33,7 @@ def _validation_cfg(run_cfg: dict) -> dict:
     return {**DEFAULTS, **run_cfg["validation"]}
 
 
-def _stage_result(name: str, root: Path, records, findings: List[Finding]) -> dict:
+def _stage_result(name: str, root: Path, records, findings: list[Finding]) -> dict:
     readable = [r for r in records if r.ok and r.mode]
     return {
         "stage": name,
@@ -62,8 +61,8 @@ def validate_raw(cfg: dict) -> dict:
 
 def validate_splits(cfg: dict) -> dict:
     base = Path(CONFIG["data_dir"])
-    findings: List[Finding] = []
-    by_split: Dict[str, list] = {}
+    findings: list[Finding] = []
+    by_split: dict[str, list] = {}
     for split in SPLITS:
         recs, f = checks.scan_tree(base / split, split=split, base=base)
         by_split[split] = recs
@@ -87,7 +86,7 @@ def validate_splits(cfg: dict) -> dict:
     return _stage_result("splits", base, all_records, findings)
 
 
-def run_validation(stage: str, run_cfg: dict, report_path: Optional[Path] = None) -> dict:
+def run_validation(stage: str, run_cfg: dict, report_path: Path | None = None) -> dict:
     """Validate the dataset and (optionally) write a JSON report. Returns the report dict."""
     cfg = _validation_cfg(run_cfg)
     stages = []
@@ -96,7 +95,7 @@ def run_validation(stage: str, run_cfg: dict, report_path: Optional[Path] = None
     if stage in ("splits", "all"):
         stages.append(validate_splits(cfg))
     report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "passed": all(s["passed"] for s in stages),
         "stages": stages,
     }
@@ -133,7 +132,7 @@ def write_baseline(run_cfg: dict) -> Path:
     path = Path(cfg["baseline_path"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "classes": stage["classes"],
         "n_files": stage["n_files"],
         "fingerprint": stage["fingerprint"],
@@ -141,7 +140,7 @@ def write_baseline(run_cfg: dict) -> Path:
     return path
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate the plant disease dataset.")
     parser.add_argument("--stage", choices=["raw", "splits", "all"], default="all")
     parser.add_argument("--config", default=None, help="run config YAML (default: configs/training.yaml)")

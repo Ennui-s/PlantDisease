@@ -1,8 +1,10 @@
-import torch
 import os
+
+import torch
+
+from config import CONFIG
 from data.dataloader import get_loaders
 from models.model import PlantDiseaseModel
-from config import CONFIG
 from utils.visualization import generate_confusion_matrix, save_gradcam_image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

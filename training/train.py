@@ -10,27 +10,27 @@ runs before any training, (2) MLflow experiment tracking and (3) a JSON record o
 """
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 
 from config import CONFIG
-from models.model import PlantDiseaseModel
 from data.dataloader import get_loaders
-from utils.early_stopping import EarlyStopping
-from utils.checkpoint import save_checkpoint
-from training.prepare import prepare_run
+from models.model import PlantDiseaseModel
 from tracking.tracker import RunTracker, git_info, tracking_cfg
+from training.prepare import prepare_run
+from utils.checkpoint import save_checkpoint
+from utils.early_stopping import EarlyStopping
 from validation.validate_data import DataValidationError
 
 
 def run_training(config_path=None, skip_validation=False, report_dir="reports",
                  run_name=None, no_tracking=False, overrides=None) -> dict:
     """Validate the data, train the classifier, track the run and return a summary."""
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     prepared = prepare_run(config_path, skip_validation, report_dir, overrides)
     run_cfg = prepared["run_cfg"]
     track_cfg = tracking_cfg(run_cfg)
@@ -160,7 +160,7 @@ def run_training(config_path=None, skip_validation=False, report_dir="reports",
 
         summary = {
             "started_at": started_at.isoformat(timespec="seconds"),
-            "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "config_file": run_cfg["path"],
             "effective_config": dict(CONFIG),
             "seed": run_cfg["seed"],

@@ -1,7 +1,9 @@
 import os
-import shutil
 import random
+import shutil
+
 from config import CONFIG
+
 
 def split_dataset():
     random.seed(42)

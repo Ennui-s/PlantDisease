@@ -19,7 +19,6 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from PIL import Image
 
@@ -79,7 +78,7 @@ class ImageRecord:
     path: str
     rel: str            # path relative to the dataset root, used for fingerprints/reporting
     cls: str
-    split: Optional[str]
+    split: str | None
     ext: str
     size_bytes: int = 0
     sha256: str = ""
@@ -104,10 +103,10 @@ def _severity(value: str) -> str:
 
 # --------------------------------------------------------------------------- scanning
 
-def scan_tree(root: Path, split: Optional[str], base: Path):
+def scan_tree(root: Path, split: str | None, base: Path):
     """Walk <root>/<class>/... and return (records, findings). No image is opened here."""
-    findings: List[Finding] = []
-    records: List[ImageRecord] = []
+    findings: list[Finding] = []
+    records: list[ImageRecord] = []
 
     if not root.is_dir():
         findings.append(Finding("structure", ERROR, f"Directory not found: {root}"))
@@ -183,7 +182,7 @@ def _inspect(rec: ImageRecord, full_decode: bool) -> ImageRecord:
     return rec
 
 
-def inspect_images(records: List[ImageRecord], cfg: dict) -> List[ImageRecord]:
+def inspect_images(records: list[ImageRecord], cfg: dict) -> list[ImageRecord]:
     """Hash and open every file. Non-image extensions the loader would skip are hashed only."""
     todo = [r for r in records if r.ext in LOADER_EXTENSIONS]
     with ThreadPoolExecutor(max_workers=int(cfg["workers"])) as pool:
@@ -193,8 +192,8 @@ def inspect_images(records: List[ImageRecord], cfg: dict) -> List[ImageRecord]:
 
 # --------------------------------------------------------------------------- dataset-level checks
 
-def check_files(records: List[ImageRecord], cfg: dict) -> List[Finding]:
-    findings: List[Finding] = []
+def check_files(records: list[ImageRecord], cfg: dict) -> list[Finding]:
+    findings: list[Finding] = []
     allowed = {e.lower() for e in cfg["extensions"]}
 
     ignored = [r for r in records if r.ext not in LOADER_EXTENSIONS]
@@ -251,8 +250,8 @@ def check_files(records: List[ImageRecord], cfg: dict) -> List[Finding]:
     return findings
 
 
-def check_class_distribution(records: List[ImageRecord], cfg: dict, label: str,
-                             min_images: Optional[int] = None) -> List[Finding]:
+def check_class_distribution(records: list[ImageRecord], cfg: dict, label: str,
+                             min_images: int | None = None) -> list[Finding]:
     """min_images defaults to cfg['min_images_per_class']; pass 1 for individual splits."""
     min_required = int(cfg["min_images_per_class"]) if min_images is None else min_images
     counts = Counter(r.cls for r in records)
@@ -274,9 +273,9 @@ def check_class_distribution(records: List[ImageRecord], cfg: dict, label: str,
     return findings
 
 
-def check_duplicates(records: List[ImageRecord], cfg: dict) -> List[Finding]:
+def check_duplicates(records: list[ImageRecord], cfg: dict) -> list[Finding]:
     """Exact (byte-identical) duplicates, label conflicts and cross-split leakage."""
-    groups: Dict[str, List[ImageRecord]] = defaultdict(list)
+    groups: dict[str, list[ImageRecord]] = defaultdict(list)
     for r in records:
         if r.sha256 and r.ext in LOADER_EXTENSIONS:
             groups[r.sha256].append(r)
@@ -284,7 +283,7 @@ def check_duplicates(records: List[ImageRecord], cfg: dict) -> List[Finding]:
     if not dupes:
         return [Finding("duplicates", INFO, "No byte-identical duplicate images found.")]
 
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     conflict = [g for g in dupes if len({r.cls for r in g}) > 1]
     leaked = [g for g in dupes if len({r.split for r in g if r.split}) > 1]
     same_split = [g for g in dupes if g not in conflict and g not in leaked]
@@ -316,7 +315,7 @@ def check_duplicates(records: List[ImageRecord], cfg: dict) -> List[Finding]:
     return findings
 
 
-def check_classes_against_baseline(classes: List[str], cfg: dict) -> List[Finding]:
+def check_classes_against_baseline(classes: list[str], cfg: dict) -> list[Finding]:
     path = Path(cfg["baseline_path"])
     if not path.is_file():
         return [Finding("classes", INFO,
@@ -324,7 +323,7 @@ def check_classes_against_baseline(classes: List[str], cfg: dict) -> List[Findin
                         "Create one with --write-baseline.")]
     baseline = json.loads(path.read_text())
     expected, actual = set(baseline["classes"]), set(classes)
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     if actual - expected:
         findings.append(Finding("classes", ERROR, "Unexpected class folder(s) not in the baseline.",
                                 {"unexpected": sorted(actual - expected)}))
@@ -336,9 +335,9 @@ def check_classes_against_baseline(classes: List[str], cfg: dict) -> List[Findin
     return findings
 
 
-def check_split_consistency(by_split: Dict[str, List[ImageRecord]], ratios: Dict[str, float],
-                            cfg: dict) -> List[Finding]:
-    findings: List[Finding] = []
+def check_split_consistency(by_split: dict[str, list[ImageRecord]], ratios: dict[str, float],
+                            cfg: dict) -> list[Finding]:
+    findings: list[Finding] = []
     class_sets = {s: {r.cls for r in recs} for s, recs in by_split.items()}
     union = set().union(*class_sets.values()) if class_sets else set()
     for split, present in class_sets.items():
@@ -366,7 +365,7 @@ def check_split_consistency(by_split: Dict[str, List[ImageRecord]], ratios: Dict
     return findings
 
 
-def fingerprint(records: List[ImageRecord]) -> str:
+def fingerprint(records: list[ImageRecord]) -> str:
     """Stable hash of the dataset's contents (relative path + file hash for every file)."""
     lines = sorted(f"{r.rel}\t{r.sha256}" for r in records if r.sha256)
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()

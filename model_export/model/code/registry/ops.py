@@ -5,14 +5,18 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import mlflow
 from mlflow import MlflowClient
 
 from config import CONFIG
-from registry.policy import (check_registration_preconditions, find_version_by_sha, promotion_problems,
-                             registry_cfg, version_tags)
+from registry.policy import (
+    check_registration_preconditions,
+    find_version_by_sha,
+    promotion_problems,
+    registry_cfg,
+    version_tags,
+)
 from tracking.tracker import RunTracker, tracking_cfg, training_run_id
 
 
@@ -42,6 +46,7 @@ def _package(checkpoint_path: str, classes: list, out_dir: Path) -> Path:
     import torch
     from mlflow.models import ModelSignature
     from mlflow.types import Schema, TensorSpec
+
     from registry.pyfunc_model import PlantDiseaseClassifier
 
     work = Path(tempfile.mkdtemp(prefix="pkg_"))
@@ -69,8 +74,8 @@ def _package(checkpoint_path: str, classes: list, out_dir: Path) -> Path:
     return path
 
 
-def register(model_path: str, run_cfg: dict, run_id: Optional[str] = None,
-             eval_dir: Optional[str] = None) -> dict:
+def register(model_path: str, run_cfg: dict, run_id: str | None = None,
+             eval_dir: str | None = None) -> dict:
     """Register a gate-passed checkpoint as a new model version. The first version becomes the champion."""
     track, reg, client = _setup(run_cfg)
     stem = Path(model_path).stem
@@ -147,5 +152,5 @@ def list_versions(run_cfg: dict) -> dict:
 
 def load_champion(run_cfg: dict):
     """Load whatever version the champion alias currently points at (no model file path anywhere)."""
-    track, reg, _ = _setup(run_cfg)
+    _track, reg, _ = _setup(run_cfg)
     return mlflow.pyfunc.load_model(f"models:/{reg['model_name']}@{reg['champion_alias']}")

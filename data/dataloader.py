@@ -1,6 +1,8 @@
-from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+
 from config import CONFIG
+
 
 def get_loaders():
     # Image preprocessing pipeline
