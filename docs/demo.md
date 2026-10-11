@@ -66,7 +66,7 @@ Real (after one request): model version served, 1 successful `/predict`, 0% reje
 ```
 python -m pytest -q
 ```
-Real: 69 tests pass locally, including the real exported model, preprocessing identical to the training transform, the API over HTTP and a real temporary MLflow registry. CI (GitHub Actions) runs lint, the tests and a Docker build-and-smoke-test on every push.
+Real: 69 tests pass locally, including the real exported model, preprocessing identical to the training transform, the API over HTTP and a real temporary MLflow registry. CI (GitHub Actions) runs lint, the tests and a Docker build-and-smoke-test on every push; real: both jobs pass.
 
 **10. Replacing the champion safely**
 ```

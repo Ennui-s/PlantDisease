@@ -47,6 +47,7 @@ Top confusions (true class -> predicted class, number of test images):
 | MLflow returned model-version numbers as integers in some calls and strings in others (two separate places) | the test against a real MLflow registry; a stand-in registry had hidden it | versions are now always strings |
 | API tests were silently skipped | a missing `httpx` dependency; the skip reason showed only with `-rs` | dependency installed; the lesson is to read skip reasons |
 | Windows-specific registry paths could not be used in a Linux container | anticipated before building the image | the image bakes in an exported model |
+| The first CI runs failed: `requirements-test.txt` had never been committed, and lint found a redefined import in a test (plus further findings under a stricter local ruff setup) | the GitHub Actions log and a local `ruff check` | files committed; code fixed (narrowed exceptions, modern FastAPI parameter style, one test import); CI now passes |
 | A test that appeared to cover the per-class promotion rule did not | a deliberately injected bug survived | the test was rewritten so only that rule can fail it |
 
 ## 5. Operational risks that remain
