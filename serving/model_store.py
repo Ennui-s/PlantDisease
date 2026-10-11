@@ -47,7 +47,7 @@ def _wrap(model, settings: Settings, name: str, alias: str, version: str, run_id
     classes = list(model.unwrap_python_model().classes)
     try:  # input size from the model signature: (-1, 3, H, W)
         input_size = int(model.metadata.signature.inputs.inputs[0].shape[-1])
-    except Exception:
+    except (AttributeError, IndexError, TypeError, ValueError):   # no signature, or not the expected shape
         input_size = settings.default_input_size
     return LoadedModel(
         predict=model.predict, classes=classes, name=name, alias=alias, version=str(version),
@@ -101,7 +101,7 @@ class ModelStore:
                 self._loaded = self._loader(self.settings)
                 self.last_error = None
                 return True
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  any loader failure must leave the previous model serving
                 self.last_error = f"{type(exc).__name__}: {exc}"
                 return False
 

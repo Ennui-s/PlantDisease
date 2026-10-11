@@ -10,6 +10,7 @@ from pathlib import Path
 
 import mlflow
 from mlflow import MlflowClient
+from mlflow.exceptions import MlflowException
 
 from config import CONFIG
 from registry.policy import (
@@ -155,7 +156,7 @@ def list_versions(run_cfg: dict) -> dict:
 
 def load_champion(run_cfg: dict):
     """Load whatever version the champion alias currently points at (no model file path anywhere)."""
-    _track, reg, _ = _setup(run_cfg)
+    _, reg, _ = _setup(run_cfg)
     return mlflow.pyfunc.load_model(f"models:/{reg['model_name']}@{reg['champion_alias']}")
 
 
@@ -189,7 +190,7 @@ def champion_version(run_cfg: dict) -> str | None:
     _, reg, client = _setup(run_cfg)
     try:
         return str(client.get_model_version_by_alias(reg["model_name"], reg["champion_alias"]).version)
-    except Exception:
+    except MlflowException:   # the alias, or the registered model itself, does not exist
         return None
 
 

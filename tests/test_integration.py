@@ -79,7 +79,8 @@ def test_real_model_through_the_api():
 
 def test_registry_operations_against_a_real_mlflow_store(tmp_path):
     """Promotion, listing and export against a real (temporary, SQLite) MLflow registry with a dummy model."""
-    mlflow = pytest.importorskip("mlflow")
+    pytest.importorskip("mlflow")
+    import mlflow
     import mlflow.pyfunc
 
     from registry import ops
@@ -115,6 +116,10 @@ def test_registry_operations_against_a_real_mlflow_store(tmp_path):
     client.set_model_version_tag("plant-disease-classifier", "2", "quality_gate", "passed")
     result = ops.promote("2", run_cfg)
     assert result["version"] == "2" and result["previous"] == "1"
+    assert ops.champion_version(run_cfg) == "2"
+    empty_cfg = load_run_config(None)
+    empty_cfg["tracking"] = {"tracking_uri": f"sqlite:///{(tmp_path / 'empty.db').as_posix()}"}
+    assert ops.champion_version(empty_cfg) is None          # a registry with no champion (or no model at all)
 
     listing = ops.list_versions(run_cfg)
     assert [v["version"] for v in listing["versions"]] == ["1", "2"]

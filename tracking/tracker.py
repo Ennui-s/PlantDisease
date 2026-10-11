@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Self
+from typing import Optional, Self
 
 TRACKING_DEFAULTS = {
     "enabled": True,
@@ -34,7 +34,7 @@ def git_info():
         changes = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
                                  capture_output=True, text=True, timeout=5, check=True).stdout.strip()
         return commit, bool(changes)
-    except Exception:
+    except (OSError, subprocess.SubprocessError):   # git not installed, not a repository, or timed out
         return None, None
 
 

@@ -18,6 +18,7 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, File, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -158,7 +159,7 @@ def create_app(store: ModelStore | None = None, settings: Settings | None = None
         return store.require().info()
 
     @app.post("/predict", response_model=PredictionResponse)
-    def predict(request: Request, file: UploadFile = File(...)):
+    def predict(request: Request, file: Annotated[UploadFile, File()]):
         data = file.file.read(settings.max_upload_bytes + 1)
         result = predict_bytes(store, settings, data, request.state.request_id)
         request.state.prediction = {   # picked up by the request middleware for logs and metrics
@@ -173,7 +174,7 @@ def create_app(store: ModelStore | None = None, settings: Settings | None = None
 
     if settings.admin_token:
         @app.post("/reload")
-        def reload(x_admin_token: str | None = Header(default=None)):
+        def reload(x_admin_token: Annotated[str | None, Header()] = None):
             if not hmac.compare_digest((x_admin_token or "").encode(), settings.admin_token.encode()):
                 raise ApiError(401, "unauthorized", "A valid X-Admin-Token header is required.")
             reloaded = store.load()

@@ -176,7 +176,7 @@ def _inspect(rec: ImageRecord, full_decode: bool) -> ImageRecord:
         if full_decode:  # verify() only checks structure; load() decodes pixel data
             with Image.open(rec.path) as im:
                 im.load()
-    except Exception as exc:  # any failure means the loader could not use this file
+    except Exception as exc:  # noqa: BLE001  any failure, of any type, means the loader could not use this file
         rec.ok = False
         rec.error = f"{type(exc).__name__}: {exc}"
     return rec

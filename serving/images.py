@@ -38,7 +38,7 @@ def load_image(data: bytes, settings: Settings) -> Image.Image:
                        f"The image is too small; each side must be at least {settings.min_side} px.")
     try:
         image.load()  # decodes the pixel data; this is where truncated/corrupted files fail
-    except Exception:
+    except Exception:  # noqa: BLE001  untrusted input: Pillow decoders raise many different exception types
         raise ApiError(422, "image_corrupted",
                        "The image could not be decoded; it may be corrupted or truncated.") from None
     return image.convert("RGB")
