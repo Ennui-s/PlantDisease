@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Optional, Self
+from typing import Self
 
 TRACKING_DEFAULTS = {
     "enabled": True,
