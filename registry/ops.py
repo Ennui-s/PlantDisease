@@ -177,3 +177,18 @@ def export_champion(run_cfg: dict, out_dir: str) -> dict:
             "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     (out / "model_info.json").write_text(json.dumps(info, indent=2))
     return info
+
+
+def champion_version(run_cfg: dict) -> Optional[str]:
+    """Version number the champion alias points to, or None if there is no champion."""
+    _, reg, client = _setup(run_cfg)
+    try:
+        return str(client.get_model_version_by_alias(reg["model_name"], reg["champion_alias"]).version)
+    except Exception:
+        return None
+
+
+def tag_version(run_cfg: dict, version: str, tags: dict) -> None:
+    _, reg, client = _setup(run_cfg)
+    for key, value in tags.items():
+        client.set_model_version_tag(reg["model_name"], str(version), key, str(value))

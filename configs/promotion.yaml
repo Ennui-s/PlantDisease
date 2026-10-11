@@ -1,0 +1,13 @@
+# When may a retrained candidate replace the current champion?
+# The candidate must already have passed the quality gate against the reference (configs/quality_gate.yaml);
+# these rules compare it with the champion, on the same fixed test set, image by image.
+#
+#  1. it fixes more images than it breaks, by at least min_accuracy_gain in accuracy,
+#  2. the improvement is statistically significant (McNemar exact test on the images where the two
+#     models disagree; with ~100 errors on 2,073 test images, a gain from noise alone is common),
+#  3. no class gets more than max_class_recall_drop worse than the champion (same reasoning as the gate:
+#     one image in the 16-image Potato___healthy test class moves its recall by 0.0625).
+
+alpha: 0.05
+min_accuracy_gain: 0.0
+max_class_recall_drop: 0.10

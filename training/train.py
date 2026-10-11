@@ -28,10 +28,10 @@ from validation.validate_data import DataValidationError
 
 
 def run_training(config_path=None, skip_validation=False, report_dir="reports",
-                 run_name=None, no_tracking=False) -> dict:
+                 run_name=None, no_tracking=False, overrides=None) -> dict:
     """Validate the data, train the classifier, track the run and return a summary."""
     started_at = datetime.now(timezone.utc)
-    prepared = prepare_run(config_path, skip_validation, report_dir)
+    prepared = prepare_run(config_path, skip_validation, report_dir, overrides)
     run_cfg = prepared["run_cfg"]
     track_cfg = tracking_cfg(run_cfg)
     if no_tracking:

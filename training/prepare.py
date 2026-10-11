@@ -11,8 +11,10 @@ from validation.validate_data import DataValidationError, print_report, run_vali
 
 
 def prepare_run(config_path: Optional[str] = None, skip_validation: bool = False,
-                report_dir: str = "reports") -> dict:
+                report_dir: str = "reports", overrides: Optional[dict] = None) -> dict:
     run_cfg = load_run_config(config_path)
+    # overrides given by the caller (e.g. the retraining workflow) win over the config file
+    run_cfg["config_overrides"] = {**run_cfg["config_overrides"], **(overrides or {})}
     apply_overrides(run_cfg["config_overrides"])
 
     validation = {"ran": False}

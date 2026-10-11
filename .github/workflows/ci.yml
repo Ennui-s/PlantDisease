@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-test.txt
       - name: Lint (syntax errors, undefined names, unused imports)
-        run: ruff check validation tracking evaluation registry serving training/train.py training/prepare.py training/run_config.py tests
+        run: ruff check validation tracking evaluation registry retraining serving training/train.py training/prepare.py training/run_config.py tests
       - name: Tests
         run: python -m pytest -q
 

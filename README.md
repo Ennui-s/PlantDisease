@@ -4,7 +4,7 @@ An image classifier that identifies plant leaf diseases from photographs, built 
 
 **Test accuracy: 95.18%** (0.9517607332368548). Validation accuracy stabilised at roughly 95-96% during training.
 
-> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion, packaged as a **Docker image**, with an automated **test suite and GitHub Actions CI**, and **request logging and metrics** for the running service (see [ML mini-platform](#ml-mini-platform-in-progress)). Retraining is not implemented yet. See [Roadmap](#roadmap).
+> **Project status:** The trained classifier and its training/evaluation workflow are the original project. Around it, an ML mini-platform is being built phase by phase; so far it adds **data validation**, a **config-driven training entry point**, **MLflow experiment tracking**, a **formal evaluation with a quality gate**, an **MLflow model registry** with a champion alias, and a **FastAPI inference service** that serves the champion, packaged as a **Docker image**, with an automated **test suite and GitHub Actions CI**, **request logging and metrics** for the running service, and a **retraining workflow** that promotes a new model only if it significantly beats the champion (see [ML mini-platform](#ml-mini-platform-in-progress)). See [Roadmap](#roadmap).
 
 ---
 
@@ -105,6 +105,7 @@ configs/
   training.yaml        # run configuration: overrides, seed, data validation thresholds
   smoke_test.yaml      # 1-epoch run that writes to separate model/log paths
   quality_gate.yaml    # quality gate margins and where the reference metrics live
+  promotion.yaml       # when a retrained candidate may replace the champion
   reference_metrics.json  # generated once from the original model; commit it
   experiments/         # baseline, lr_0005, batch_64: experiment configs that extend training.yaml
 requirements.txt
@@ -136,6 +137,12 @@ serving/
   settings.py          # environment-variable settings
   errors.py            # API error type
   check_parity.py      # checks serving preprocessing against the training transform
+retraining/
+  cli.py               # python -m retraining
+  pipeline.py          # the workflow steps and the decision flow
+  compare.py           # paired comparison with the champion, promotion rules
+  new_data.py          # ingest and validate a batch of new images
+  real_ops.py          # the real training / evaluation / registry steps
 registry/
   cli.py               # python -m registry register | promote | show | check
   ops.py               # register, promote, list, load the champion (MLflow)
@@ -158,6 +165,7 @@ validation/
 outputs/               # generated evaluation figures
 reports/               # generated: data_validation.json, training_run.json, evaluation/<model>/
 checkpoints/           # generated: per-experiment model checkpoints (not best_model.pth)
+datasets/              # generated: derived datasets for retraining runs with new data
 mlflow.db, mlruns/     # generated: MLflow tracking database and artifacts
 logs/tensorboard/      # not in the repo; written during training
 ```
@@ -472,12 +480,48 @@ Predicted classes: Tomato_healthy 3
 
 What this is for: a sudden rise in rejections points at a client or upload problem; a shift in the predicted-class distribution or in the share of low-confidence predictions is a signal that the incoming images differ from the training data (the model cannot tell a leaf of another crop from the ones it knows); latency and errors show the health of the service itself. The metrics live in the memory of the running process and reset on restart; there are no alerts, dashboards or long-term storage.
 
-**How it was checked:** the metrics and logging code was unit-tested (counting rules, histogram consistency, label escaping and round trip, rendered text parsed back, the summary numbers, log fields limited to the allow-list with no file names or image bytes, log levels) and the tests were checked against deliberately introduced bugs. The API tests for `/metrics` and the logs run in the FastAPI test suite. **`[CONFIRM: python -m pytest -q passing with the monitoring tests, and the output of python -m serving.metrics_summary against the running container after a few requests]`**
+**How it was checked:** the metrics and logging code was unit-tested (counting rules, histogram consistency, label escaping and round trip, rendered text parsed back, the summary numbers, log fields limited to the allow-list with no file names or image bytes, log levels) and the tests were checked against deliberately introduced bugs. The API tests for `/metrics` and the logs run in the FastAPI test suite. On the real setup the full suite passes with the monitoring tests (69 tests), and against the running container `python -m serving.metrics_summary` reported, after one prediction, the served model version, 1 successful request with 0% rejections, latency estimates of about 112 ms (predict) and 88 ms (inference), and the predicted class. (That image was a `Tomato_Early_blight` test image, the model's weakest class, and the model gave it a confidence of only 0.555.)
+
+### Phase 9: retraining and model promotion (implemented)
+
+**Why:** a deployed model should be replaceable by a better one, but only when the evidence says it is better. This workflow retrains the existing classifier, runs the new version through the same evaluation and gate as every other version, registers it, compares it with the current champion and either promotes it or leaves the champion in place.
+
+```
+new images (optional) -> validate -> train -> evaluate -> quality gate -> register
+                                                                             |
+                      compare with the champion on the same test images  <---+
+                                  |                      |
+                              promote                 reject (champion stays)
+```
+
+```powershell
+python -m retraining                                 # retrain the same recipe and compare with the champion
+python -m retraining --new-data path\to\new_images   # add new labelled images (one sub-folder per class) to the training split
+python -m retraining --config configs\experiments\lr_0005.yaml --name retrain-lr   # a different training recipe
+```
+
+Every run creates a named candidate (`--name`, default `retrain-<time>`) with its own checkpoint, MLflow run, evaluation folder and a decision record in `reports/retraining/<name>/decision.json`. Training takes as long as the original training (about an hour on a GPU; longer on a CPU).
+
+**New data.** New images go into the **training split only**; validation and test stay exactly as they are, so every model version is judged on the same test images and the results are comparable. The batch is validated (readable, JPEG/PNG, not tiny), its class folders must already exist (a model with 15 fixed classes cannot learn a 16th by retraining), and an image is excluded when it is byte-identical to an image already in train/val/test (a duplicate, or a leak into the test set), filed under a different class than an identical existing image, or duplicated within the batch. What was accepted and excluded, and why, is written to `new_data_report.json`. The result is a derived dataset in `datasets/<name>/` (existing files hard-linked or copied, plus the accepted images), so the original `dataset/` is never modified, and the training run records the derived dataset's fingerprint.
+
+**When is a candidate promoted?** First it must pass the quality gate against the reference model, otherwise it is not even registered. Then it is registered as a new version and compared with the champion, image by image, on the test set (`configs/promotion.yaml`):
+
+| Rule | Why |
+|---|---|
+| it fixes more test images than it breaks, by at least `min_accuracy_gain` in accuracy | it must actually be better |
+| the improvement is statistically significant (McNemar exact test on the images where the two models disagree, `alpha` 0.05) | with about 100 errors on 2,073 test images, a gain of a few images is routinely just noise |
+| no class gets more than 0.10 worse in recall than under the champion | the same reasoning as the gate: one image in the 16-image `Potato___healthy` test class moves its recall by 0.0625 |
+
+A candidate that fails is **rejected**: its version stays in the registry, tagged `promotion_decision=rejected` with the reasons, and the champion alias does not move. A promoted candidate becomes the champion; to ship it, run `python -m registry export` and rebuild the image (see Phase 6). The decision, the champion's and candidate's accuracy, the McNemar counts and p-value, and the reasons are stored as version tags, on the MLflow run and in `decision.json`.
+
+**Limits to be aware of.** Retraining without new data repeats the same recipe on the same training split, so a result close to the champion is expected and it will normally be rejected; that exercises the rejection path honestly but is not evidence of improvement. Promotion needs a candidate that is genuinely better, which depends on better data or a better recipe. Retraining is a manual command, not part of CI: it needs the dataset and the local registry, and training does not belong in a per-commit workflow.
+
+**How it was checked:** the statistics (McNemar against hand-computed p-values), the promotion rules (clear improvement, noise-level improvement, equal or worse, a class that gets much worse while the overall result is significantly better), the new-data ingestion (derived dataset layout, the original untouched, duplicates, label conflicts, unreadable and tiny files, unknown classes, an empty or already used target) and the workflow flow (promote, register but reject, stop at the gate, no champion, mismatching test sets, new data passed to training) were unit-tested with stand-in training and registry steps, and the tests were checked against deliberately introduced bugs. The real steps (training through the workflow, evaluation, registration, comparing against the live champion) have not been run yet. **`[CONFIRM: python -m pytest -q, then python -m retraining on the real setup, and the decision it reports]`**
 
 ## Roadmap
 
-Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), the inference API (Phase 5), Docker packaging (Phase 6), tests with CI (Phase 7), and monitoring (Phase 8). The following are **planned and not yet implemented**:
+Implemented so far: data validation and a config-driven training entry point (Phase 1), MLflow experiment tracking of training runs (Phase 2), formal evaluation with a quality gate (Phase 3), the model registry (Phase 4), the inference API (Phase 5), Docker packaging (Phase 6), tests with CI (Phase 7), monitoring (Phase 8), and retraining with model promotion (Phase 9). The following is **planned and not yet written**:
 
-- Retraining and model promotion
+- Final documentation: architecture and lifecycle diagrams, model card, failure analysis, engineering decisions, demonstration walkthrough
 
 This section will be updated as each item is built.

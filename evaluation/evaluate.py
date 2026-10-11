@@ -78,6 +78,7 @@ def run_evaluation(model_path, output_dir, n_gradcam=3) -> dict:
         "device": str(device),
     })
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (out / "predictions.json").write_text(json.dumps({"y_true": y_true, "y_pred": y_pred}))  # for paired comparisons
 
     generate_confusion_matrix(model, test_loader, classes, device, str(out / "confusion_matrix.png"))
     for i, img_tensor in enumerate(samples):
@@ -97,6 +98,9 @@ def _log_to_mlflow(tracker, metrics, gate, out_dir):
                       "quality_gate": None if gate is None else ("passed" if gate["passed"] else "failed")})
     for f in sorted(Path(out_dir).glob("*")):
         tracker.log_artifact(f, "evaluation")
+
+
+log_evaluation = _log_to_mlflow   # used by the retraining workflow
 
 
 def main(argv=None) -> int:
